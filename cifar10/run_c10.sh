@@ -1,0 +1,1 @@
+CUDA_VISIBILE_DEVICES=5 python train.py --log-wandb --config cifar10_8M.yml

@@ -1,0 +1,1 @@
+CUDA_VISIBILE_DEVICES=9 python train.py --log-wandb --config cifar100_9M_smaller.yml

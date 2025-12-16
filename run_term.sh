@@ -1,0 +1,1 @@
+docker run --gpus all --cpus 10 --memory 500g --memory-swap 500g --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --rm -ti -v /raid/home/e3da/projects/aancilotto/datasets/imagenet:/home/e3da/code/imagenet -v $PWD:/home/e3da/code spikeformer-aancilotto-e3da-0:devel /bin/bash

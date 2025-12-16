@@ -1,0 +1,53 @@
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch
+*.pt
+*.pth
+*.ckpt
+*.checkpoint
+
+# Checkpoints
+checkpoints/
+checkpoint/
+
+# Data directories
+data/
+*/data/
+**/data/
+
+# Logs
+logs/
+*/logs/
+**/logs/
+*.log
+*.txt.log
+
+# Weights & Biases
+wandb/
+*/wandb/
+**/wandb/
+
+# Output directories
+output/
+*/output/
+**/output/
+
+# TensorBoard
+events.out.tfevents.*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

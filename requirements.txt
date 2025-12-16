@@ -1,0 +1,4 @@
+spikingjelly == 0.0.0.0.12
+-e ./timm
+wandb
+torchinfo
