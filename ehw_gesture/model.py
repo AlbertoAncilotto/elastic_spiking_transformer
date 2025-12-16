@@ -255,15 +255,12 @@ class XiSSA(nn.Module):
         hd = self.head_dim
 
         for h in self.head_granularities:
-            # Q, K, V conv weights (no bias) + BN params
-            qkv_conv = 3 * (dim * dim * 1)  # kernel_size=1
-            qkv_bn = 3 * (2 * dim)
-            # Projection conv + BN
-            proj_conv = dim * dim * 1 + dim  # includes bias
+            qkv_lin = 3 * (dim * h + dim)
+            qkv_bn = 3 * (2 * h)
+            proj = h * dim + dim
             proj_bn = 2 * dim
-            # Attention computation (QK^T and AttnV)
-            attn = h * N * N + h * N * hd  # Approximation: depends on sequence length N
-            total = qkv_conv + qkv_bn + proj_conv + proj_bn
+            attn = 3 * (dim * h * hd)
+            total = qkv_lin + qkv_bn + attn + proj + proj_bn
             params.append(total)
 
         return params
@@ -397,17 +394,17 @@ class SPS(nn.Module):
         x = self.maxpool(x)
 
         x = self.proj_conv1(x)
-        x = self.proj_bn1(x).reshape(T, B, -1, 64, 64).contiguous()
+        x = self.proj_bn1(x).reshape(T, B, -1, H//2, W//2).contiguous()
         x = self.proj_lif1(x).flatten(0, 1).contiguous()
         x = self.maxpool1(x)
 
         x = self.proj_conv2(x)
-        x = self.proj_bn2(x).reshape(T, B, -1, 32, 32).contiguous()
+        x = self.proj_bn2(x).reshape(T, B, -1, H//4, W//4).contiguous()
         x = self.proj_lif2(x).flatten(0, 1).contiguous()
         x = self.maxpool2(x)
 
         x = self.proj_conv3(x)
-        x = self.proj_bn3(x).reshape(T, B, -1, 16, 16).contiguous()
+        x = self.proj_bn3(x).reshape(T, B, -1, H//8, W//8).contiguous()
         x = self.proj_lif3(x).flatten(0, 1).contiguous()
         x = self.maxpool3(x)
 

@@ -352,7 +352,7 @@ class SPS(nn.Module):
 
         # ----------- Stage 3 ------------
         self.proj_conv3 = nn.Conv2d(c3, c4, kernel_size=3, stride=1, padding=1, bias=False)
-        self.proj_bn3 = nn.BatchNorm2d(c_out)
+        self.proj_bn3 = nn.BatchNorm2d(c4)
         self.proj_lif3 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
         self.maxpool3 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
