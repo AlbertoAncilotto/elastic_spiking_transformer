@@ -1,0 +1,1 @@
+python train.py -b 4 -j 1 --T 8 --T_train 8 --device cuda:0 --epochs 1 --use-xisps --sps-alpha 0.5

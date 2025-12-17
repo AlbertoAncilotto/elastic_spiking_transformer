@@ -7,6 +7,7 @@ import torch
 import torch.utils.data
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
+import torchinfo
 from torchvision import transforms
 import math
 from torch.cuda import amp
@@ -161,6 +162,12 @@ def parse_args():
                         help='drop path rate (default: 0.1)')
     parser.add_argument('--drop-block-rate', type=float, default=None,
                         help='drop block rate (default: None)')
+    parser.add_argument('--sps-alpha', type=float, default=1.0,
+                        help='SPS alpha (default: 1.0)')
+    parser.add_argument('--use-xisps', action='store_true', default=False,
+                        help='use smaller xisps patch splitting')
+    parser.add_argument('--xisps-elastic', action='store_true', default=False,
+                        help='make xisps patch splitting elastic too')
     
     # NEW: Dataset split arguments for EHW Gesture
     parser.add_argument('--train-ratio', type=float, default=0.75,
@@ -305,6 +312,87 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, header='Test
     return loss, acc1g0, metric_logger.acc1_g1.global_avg, metric_logger.acc1_g2.global_avg, acc1g3
 
 
+def full_evaluate(model, criterion, data_loader, device, print_freq=100):
+    """
+    Evaluate all combinations of granularity settings:
+    granularity = [feat_extractor_gran, attn_gran, mlp_gran]
+    Each can be 0, 1, 2, or 3 (4^3 = 64 combinations)
+    """
+    model.eval()
+    print("\n" + "="*80)
+    print("FULL GRANULARITY EVALUATION - Testing all 64 combinations")
+    print("="*80)
+    
+    results = {}
+    
+    with torch.no_grad():
+        for g_feat in range(4):
+            for g_attn in range(4):
+                for g_mlp in range(4):
+                    granularity = [g_feat, g_attn, g_mlp]
+                    metric_logger = utils.MetricLogger(delimiter="  ")
+                    
+                    header = f'Full Eval [F:{g_feat}, A:{g_attn}, M:{g_mlp}]'
+                    for image, target in metric_logger.log_every(data_loader, print_freq, header):
+                        image = image.to(device, non_blocking=True)
+                        target = target.to(device, non_blocking=True)
+                        image = image.float()
+                        output = model(image, granularity=granularity)
+                        loss = criterion(output, target)
+                        functional.reset_net(model)
+
+                        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+                        batch_size = image.shape[0]
+                        metric_logger.update(loss=loss.item())
+                        metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
+                        metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+                    metric_logger.synchronize_between_processes()
+
+                    parameters = model.get_granularity_parameters(granularity)
+                    
+                    loss = metric_logger.loss.global_avg
+                    acc1 = metric_logger.acc1.global_avg
+                    acc5 = metric_logger.acc5.global_avg
+                    
+                    results[tuple(granularity)] = {
+                        'loss': loss,
+                        'acc1': acc1,
+                        'acc5': acc5,
+                        'parameters': parameters
+                    }
+                    
+                    print(f'    Granularity Setting: {granularity}')
+                    print(f'    Granularity Parameters: {parameters}')
+                    print(f'[F:{g_feat}, A:{g_attn}, M:{g_mlp}] - Acc@1: {acc1:.2f}%, Acc@5: {acc5:.2f}%, Loss: {loss:.4f}')
+    
+    # Print summary
+    print("\n" + "="*80)
+    print("SUMMARY - Top 10 Configurations by Acc@1")
+    print("="*80)
+    sorted_results = sorted(results.items(), key=lambda x: x[1]['acc1'], reverse=True)
+    for i, (gran, metrics) in enumerate(sorted_results[:10]):
+        print(f"{i+1:2d}. [F:{gran[0]}, A:{gran[1]}, M:{gran[2]}] - Acc@1: {metrics['acc1']:.2f}%, Acc@5: {metrics['acc5']:.2f}%, Loss: {metrics['loss']:.4f}")
+        print(f"    Granularity Parameters: {metrics['parameters']}")
+    
+    print("\n" + "="*80)
+    print("Bottom 10 Configurations by Acc@1")
+    print("="*80)
+    for i, (gran, metrics) in enumerate(sorted_results[-10:]):
+        print(f"{i+1:2d}. [F:{gran[0]}, A:{gran[1]}, M:{gran[2]}] - Acc@1: {metrics['acc1']:.2f}%, Acc@5: {metrics['acc5']:.2f}%, Loss: {metrics['loss']:.4f}")
+        print(f"    Granularity Parameters: {metrics['parameters']}")
+    
+    # Find best configuration
+    best_gran, best_metrics = sorted_results[0]
+    print("\n" + "="*80)
+    print(f"BEST CONFIGURATION: [F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}]")
+    print(f"Acc@1: {best_metrics['acc1']:.2f}%, Acc@5: {best_metrics['acc5']:.2f}%, Loss: {best_metrics['loss']:.4f}")
+    print(f"    Granularity Parameters: {best_metrics['parameters']}")
+    print("="*80 + "\n")
+    
+    return results, best_gran, best_metrics
+
+
 def load_data(dataset_dir, distributed, T, num_classes, train_ratio=0.9, random_split=False):
     """
     Load EHW Gesture dataset and split into train/test sets.
@@ -431,11 +519,28 @@ def main(args):
         drop_rate=args.drop_rate,
         drop_path_rate=args.drop_path_rate,
         drop_block_rate=args.drop_block_rate,
+        sps_alpha=args.sps_alpha,
+        use_xisps=args.use_xisps,
+        xisps_elastic=args.xisps_elastic,
     )
 
     print("Creating model")
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"number of params: {n_parameters}")
+
+    print("\n\n ================== Model Summary: ================== \n\n")
+    torchinfo.summary(model)
+
+    print("\n\n ================== Patch Embedding Summary: ================== \n\n")
+    torchinfo.summary(model.patch_embed)
+
+    print("\n\n ================== Single Block Summary: ================== \n\n")
+    torchinfo.summary(model.block)
+
+    print("\n\n ================== CLS Summary: ================== \n\n")
+    torchinfo.summary(model.head)
+
+    model.get_granularity_info()
     
     # Initialize WandB
     if args.log_wandb and utils.is_main_process():
@@ -611,6 +716,26 @@ def main(args):
         utils.save_on_master(
             checkpoint,
             os.path.join(output_dir, f'checkpoint_{epoch}.pth'))
+    
+    # Run full evaluation with all granularity combinations
+    print("\n\nRunning full granularity evaluation...")
+    full_results, best_gran, best_metrics = full_evaluate(
+        model, criterion, data_loader_test, device=device)
+    
+    # Log full evaluation results to wandb
+    if args.log_wandb and utils.is_main_process():
+        # Log best configuration
+        wandb.run.summary["best_full_eval_granularity"] = f"F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}"
+        wandb.run.summary["best_full_eval_acc1"] = best_metrics['acc1']
+        wandb.run.summary["best_full_eval_acc5"] = best_metrics['acc5']
+        wandb.run.summary["best_full_eval_loss"] = best_metrics['loss']
+        
+        # Create a table with all results
+        full_eval_table = wandb.Table(columns=["Feat_Gran", "Attn_Gran", "MLP_Gran", "Acc@1", "Acc@5", "Loss"])
+        for gran, metrics in full_results.items():
+            full_eval_table.add_data(gran[0], gran[1], gran[2], 
+                                    metrics['acc1'], metrics['acc5'], metrics['loss'])
+        wandb.log({"full_evaluation_results": full_eval_table})
     
     # Finish wandb run
     if args.log_wandb and utils.is_main_process():
