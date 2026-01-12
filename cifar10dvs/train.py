@@ -7,12 +7,14 @@ import torch
 import torch.utils.data
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
+import torchinfo
 from torchvision import transforms
 import math
 from torch.cuda import amp
 import model, utils
 from spikingjelly.clock_driven import functional
 from spikingjelly.datasets import cifar10_dvs
+from spikingjelly.datasets import dvs128_gesture
 from timm.models import create_model
 from timm.data import Mixup
 from timm.optim import create_optimizer
@@ -39,10 +41,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description='PyTorch Classification Training')
 
     parser.add_argument('--model', default='spikformer', help='model')
-    parser.add_argument('--dataset', default='cifar10dvs', help='dataset')
+    parser.add_argument('--dataset', default='cifar10dvs', choices=['cifar10dvs', 'dvs128gesture'], 
+                        help='dataset (cifar10dvs or dvs128gesture)')
     parser.add_argument('--num-classes', type=int, default=10, metavar='N',
-                        help='number of label classes (default: 1000)')
-    parser.add_argument('--data-path', default='data/cifar10dvs-python/', help='dataset')
+                        help='number of label classes (default: 10 for cifar10dvs, 11 for dvs128gesture)')
+    parser.add_argument('--data-path', default='data/cifar10dvs-python/', 
+                        help='dataset path (e.g., data/cifar10dvs-python/ or data/dvs128gesture/)')
     parser.add_argument('--device', default='cuda:9', help='device')
     parser.add_argument('-b', '--batch-size', default=16, type=int)
     parser.add_argument('-j', '--workers', default=32, type=int, metavar='N',
@@ -169,6 +173,12 @@ def parse_args():
                         help='drop path rate (default: 0.1)')
     parser.add_argument('--drop-block-rate', type=float, default=None,
                         help='drop block rate (default: None)')
+    parser.add_argument('--sps-alpha', type=float, default=1.0,
+                        help='SPS alpha (default: 1.0)')
+    parser.add_argument('--use-xisps', action='store_true', default=False,
+                        help='use smaller xisps patch splitting')
+    parser.add_argument('--xisps-elastic', action='store_true', default=False,
+                        help='make xisps patch splitting elastic too')
     
     args = parser.parse_args()
     return args
@@ -263,7 +273,35 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, pri
     return metric_logger.loss.global_avg, metric_logger.acc1.global_avg, metric_logger.acc5.global_avg
 
 
+
 def evaluate(model, criterion, data_loader, device, print_freq=100, header='Test:'):
+    model.eval()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    with torch.no_grad():
+        for granularity in range(4):
+            for image, target in metric_logger.log_every(data_loader, print_freq, header):
+                image = image.to(device, non_blocking=True)
+                target = target.to(device, non_blocking=True)
+                image = image.float()
+                output = model(image, granularity=granularity)
+                loss = criterion(output, target)
+                functional.reset_net(model)
+
+                acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+                batch_size = image.shape[0]
+                metric_logger.update(loss=loss.item())
+                metric_logger.meters[f'acc1_g{granularity}'].update(acc1.item(), n=batch_size)
+                metric_logger.meters[f'acc5_g{granularity}'].update(acc5.item(), n=batch_size)
+
+    metric_logger.synchronize_between_processes()
+
+    loss, acc1g0, acc1g3 = metric_logger.loss.global_avg, metric_logger.acc1_g0.global_avg, metric_logger.acc1_g3.global_avg
+    print(f' * Acc@1 (G:0) = {acc1g0}, Acc@1 (G:3) = {acc1g3}, loss = {loss}')
+    return loss, acc1g0, metric_logger.acc1_g1.global_avg, metric_logger.acc1_g2.global_avg, acc1g3
+
+
+
+def evaluate_old(model, criterion, data_loader, device, print_freq=100, header='Test:'):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
     with torch.no_grad():
@@ -288,13 +326,103 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, header='Test
     return loss, acc1, acc5
 
 
-def load_data(dataset_dir, distributed, T):
-    print("Loading data")
+def full_evaluate(model, criterion, data_loader, device, print_freq=100):
+    """
+    Evaluate all combinations of granularity settings:
+    granularity = [feat_extractor_gran, attn_gran, mlp_gran]
+    Each can be 0, 1, 2, or 3 (4^3 = 64 combinations)
+    """
+    model.eval()
+    print("\n" + "="*80)
+    print("FULL GRANULARITY EVALUATION - Testing all 64 combinations")
+    print("="*80)
+    
+    results = {}
+    
+    with torch.no_grad():
+        for g_feat in range(4):
+            for g_attn in range(4):
+                for g_mlp in range(4):
+                    granularity = [g_feat, g_attn, g_mlp]
+                    metric_logger = utils.MetricLogger(delimiter="  ")
+                    
+                    header = f'Full Eval [F:{g_feat}, A:{g_attn}, M:{g_mlp}]'
+                    for image, target in metric_logger.log_every(data_loader, print_freq, header):
+                        image = image.to(device, non_blocking=True)
+                        target = target.to(device, non_blocking=True)
+                        image = image.float()
+                        output = model(image, granularity=granularity)
+                        loss = criterion(output, target)
+                        functional.reset_net(model)
+
+                        acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
+                        batch_size = image.shape[0]
+                        metric_logger.update(loss=loss.item())
+                        metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
+                        metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+                    metric_logger.synchronize_between_processes()
+
+                    parameters = model.get_granularity_parameters(granularity)
+                    
+                    loss = metric_logger.loss.global_avg
+                    acc1 = metric_logger.acc1.global_avg
+                    acc5 = metric_logger.acc5.global_avg
+                    
+                    results[tuple(granularity)] = {
+                        'loss': loss,
+                        'acc1': acc1,
+                        'acc5': acc5,
+                        'parameters': parameters
+                    }
+                    
+                    print(f'    Granularity Setting: {granularity}')
+                    print(f'    Granularity Parameters: {parameters}')
+                    print(f'[F:{g_feat}, A:{g_attn}, M:{g_mlp}] - Acc@1: {acc1:.2f}%, Acc@5: {acc5:.2f}%, Loss: {loss:.4f}')
+    
+    # Print summary
+    print("\n" + "="*80)
+    print("SUMMARY - Top 10 Configurations by Acc@1")
+    print("="*80)
+    sorted_results = sorted(results.items(), key=lambda x: x[1]['acc1'], reverse=True)
+    for i, (gran, metrics) in enumerate(sorted_results[:10]):
+        print(f"{i+1:2d}. [F:{gran[0]}, A:{gran[1]}, M:{gran[2]}] - Acc@1: {metrics['acc1']:.2f}%, Acc@5: {metrics['acc5']:.2f}%, Loss: {metrics['loss']:.4f}")
+        print(f"    Granularity Parameters: {metrics['parameters']}")
+    
+    print("\n" + "="*80)
+    print("Bottom 10 Configurations by Acc@1")
+    print("="*80)
+    for i, (gran, metrics) in enumerate(sorted_results[-10:]):
+        print(f"{i+1:2d}. [F:{gran[0]}, A:{gran[1]}, M:{gran[2]}] - Acc@1: {metrics['acc1']:.2f}%, Acc@5: {metrics['acc5']:.2f}%, Loss: {metrics['loss']:.4f}")
+        print(f"    Granularity Parameters: {metrics['parameters']}")
+    
+    # Find best configuration
+    best_gran, best_metrics = sorted_results[0]
+    print("\n" + "="*80)
+    print(f"BEST CONFIGURATION: [F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}]")
+    print(f"Acc@1: {best_metrics['acc1']:.2f}%, Acc@5: {best_metrics['acc5']:.2f}%, Loss: {best_metrics['loss']:.4f}")
+    print(f"    Granularity Parameters: {best_metrics['parameters']}")
+    print("="*80 + "\n")
+    
+    return results, best_gran, best_metrics
+
+
+def load_data(dataset_dir, distributed, T, dataset_type='cifar10dvs', num_classes=10):
+    print(f"Loading data: {dataset_type}")
     st = time.time()
 
-    origin_set = cifar10_dvs.CIFAR10DVS(root=dataset_dir, data_type='frame', frames_number=T, split_by='number')
-    dataset_train, dataset_test = split_to_train_test_set(0.9, origin_set, 10)
-    print("Took", time.time() - st)
+    if dataset_type == 'cifar10dvs':
+        origin_set = cifar10_dvs.CIFAR10DVS(root=dataset_dir, data_type='frame', frames_number=T, split_by='number')
+        dataset_train, dataset_test = split_to_train_test_set(0.9, origin_set, num_classes)
+    elif dataset_type == 'dvs128gesture':
+        # DVS128 Gesture dataset has built-in train/test split
+        dataset_train = dvs128_gesture.DVS128Gesture(root=dataset_dir, train=True, data_type='frame', frames_number=T, split_by='number')
+        dataset_test = dvs128_gesture.DVS128Gesture(root=dataset_dir, train=False, data_type='frame', frames_number=T, split_by='number')
+    else:
+        raise ValueError(f"Unknown dataset type: {dataset_type}")
+    
+    print(f"Dataset loaded in {time.time() - st:.2f}s")
+    print(f"  Train samples: {len(dataset_train)}, Test samples: {len(dataset_test)}")
 
     print("Creating data loaders")
     if distributed:
@@ -364,7 +492,15 @@ def main(args):
 
     device = torch.device(args.device)
     data_path = args.data_path
-    dataset_train, dataset_test, train_sampler, test_sampler = load_data(data_path, args.distributed, args.T)
+    
+    # Auto-set num_classes based on dataset if not explicitly set
+    if args.dataset == 'dvs128gesture' and args.num_classes == 10:
+        args.num_classes = 11
+        print(f"Auto-set num_classes to 11 for DVS128 Gesture dataset")
+    
+    dataset_train, dataset_test, train_sampler, test_sampler = load_data(
+        data_path, args.distributed, args.T, 
+        dataset_type=args.dataset, num_classes=args.num_classes)
     data_loader = torch.utils.data.DataLoader(
         dataset=dataset_train,
         batch_size=args.batch_size,
@@ -396,13 +532,30 @@ def main(args):
         drop_rate=args.drop_rate,
         drop_path_rate=args.drop_path_rate,
         drop_block_rate=args.drop_block_rate,
+        sps_alpha=args.sps_alpha,
+        use_xisps=args.use_xisps,
+        xisps_elastic=args.xisps_elastic,
     )
 
     print("Creating model")
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"number of params: {n_parameters}")
+
+    print("\n\n ================== Model Summary: ================== \n\n")
+    torchinfo.summary(model)
+
+    print("\n\n ================== Patch Embedding Summary: ================== \n\n")
+    torchinfo.summary(model.patch_embed)
+
+    print("\n\n ================== Single Block Summary: ================== \n\n")
+    torchinfo.summary(model.block)
+
+    print("\n\n ================== CLS Summary: ================== \n\n")
+    torchinfo.summary(model.head)
+
+    model.get_granularity_info()
     
-    # Log model info to wandb
+    # Initialize WandB
     if args.log_wandb and utils.is_main_process():
         wandb.config.update({"n_parameters": n_parameters})
     
@@ -435,6 +588,7 @@ def main(args):
 
     if args.test_only:
         evaluate(model, criterion, data_loader_test, device=device, header='Test:')
+        full_evaluate(model, criterion, data_loader_test, device=device)
         return
 
     if args.tb and utils.is_main_process():
@@ -494,27 +648,31 @@ def main(args):
         
         lr_scheduler.step(epoch + 1)
 
-        test_loss, test_acc1, test_acc5 = evaluate(model, criterion, data_loader_test, device=device, header='Test:')
+        test_loss, test_acc1g0, test_acc1g1, test_acc1g2, test_acc1g3 = evaluate(model, criterion, data_loader_test, device=device, header='Test:')
         
         if utils.is_main_process():
             # TensorBoard logging
             if te_tb_writer is not None:
                 te_tb_writer.add_scalar('test_loss', test_loss, epoch)
-                te_tb_writer.add_scalar('test_acc1', test_acc1, epoch)
-                te_tb_writer.add_scalar('test_acc5', test_acc5, epoch)
+                te_tb_writer.add_scalar('test_acc1_g0', test_acc1g0, epoch)
+                te_tb_writer.add_scalar('test_acc1_g1', test_acc1g1, epoch)
+                te_tb_writer.add_scalar('test_acc1_g2', test_acc1g2, epoch)
+                te_tb_writer.add_scalar('test_acc1_g3', test_acc1g3, epoch)
             
             # WandB logging
             if args.log_wandb:
                 wandb.log({
                     'epoch': epoch,
                     'test/loss': test_loss,
-                    'test/acc1': test_acc1,
-                    'test/acc5': test_acc5,
+                    'test/acc1': test_acc1g0,
+                    'test/acc1_g1': test_acc1g1,
+                    'test/acc1_g2': test_acc1g2,
+                    'test/acc1_g3': test_acc1g3,
                 }, step=epoch)
 
-        if max_test_acc1 < test_acc1:
-            max_test_acc1 = test_acc1
-            test_acc5_at_max_test_acc1 = test_acc5
+        if max_test_acc1 < test_acc1g3:
+            max_test_acc1 = test_acc1g3
+            test_acc5_at_max_test_acc1 = test_acc1g0
             save_max = True
             
             # Log best metrics to wandb
@@ -554,6 +712,26 @@ def main(args):
         utils.save_on_master(
             checkpoint,
             os.path.join(output_dir, f'checkpoint_{epoch}.pth'))
+    
+    # Run full evaluation with all granularity combinations
+    print("\n\nRunning full granularity evaluation...")
+    full_results, best_gran, best_metrics = full_evaluate(
+        model, criterion, data_loader_test, device=device)
+    
+    # Log full evaluation results to wandb
+    if args.log_wandb and utils.is_main_process():
+        # Log best configuration
+        wandb.run.summary["best_full_eval_granularity"] = f"F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}"
+        wandb.run.summary["best_full_eval_acc1"] = best_metrics['acc1']
+        wandb.run.summary["best_full_eval_acc5"] = best_metrics['acc5']
+        wandb.run.summary["best_full_eval_loss"] = best_metrics['loss']
+        
+        # Create a table with all results
+        full_eval_table = wandb.Table(columns=["Feat_Gran", "Attn_Gran", "MLP_Gran", "Acc@1", "Acc@5", "Loss"])
+        for gran, metrics in full_results.items():
+            full_eval_table.add_data(gran[0], gran[1], gran[2], 
+                                    metrics['acc1'], metrics['acc5'], metrics['loss'])
+        wandb.log({"full_evaluation_results": full_eval_table})
     
     # Finish wandb run
     if args.log_wandb and utils.is_main_process():

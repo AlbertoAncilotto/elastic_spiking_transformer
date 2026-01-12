@@ -1,0 +1,22 @@
+python train.py \
+  --model spikformer \
+  --dataset ehwgesture \
+  --num-classes 22 \
+  --data-path data/ehwgesture/ \
+  --device cuda:9 \
+  --batch-size 16 \
+  --workers 32 \
+  --T 16 \
+  --T_train 16 \
+  --opt adamw \
+  --weight-decay 0.06 \
+  --connect_f ADD \
+  --lr 0.001 \
+  --depths 1 \
+  --embed-dims 256 \
+  --mlp-ratios 4 \
+  --num-heads 16 \
+  --patch-size 16 \
+  --in-channels 2 \
+  --resume logs/spikformer_d1_e256_m4_h16/spikformer_b16_T16_Ttrain16_wd0.06_adamw_cnf_ADD/lr0.001/checkpoint_max_test_acc1.pth \
+  --test-only

@@ -1,0 +1,161 @@
+{
+  "loss": 1.2552266756170674,
+  "acc1": 69.53286482017363,
+  "acc5": 95.99007854485325,
+  "timestep_spikes": [
+    19629.443359375,
+    71603.8125,
+    100943.1328125,
+    118659.1328125,
+    97013.1015625,
+    154712.234375,
+    107707.6015625,
+    124105.1328125,
+    95184.5625,
+    110107.6015625,
+    81168.578125,
+    188594.890625,
+    75958.9375,
+    119076.2890625,
+    121029.4453125,
+    120906.0
+  ],
+  "layer_statistics": {
+    "patch_embed.proj_lif": {
+      "total_spikes": 1072246.1735197369,
+      "output_units": 819200.0,
+      "total_possible_spikes": 13107200.0,
+      "sparsity": 0.9181941090759478,
+      "firing_rate": 0.08180589092405217,
+      "mean_per_timestep": 67015.38584498355,
+      "std_per_timestep": 36205.81623920641,
+      "min_per_timestep": 9619.261378238076,
+      "max_per_timestep": 155110.50185032896
+    },
+    "patch_embed.proj_lif1": {
+      "total_spikes": 209010.634765625,
+      "output_units": 409600.0,
+      "total_possible_spikes": 6553600.0,
+      "sparsity": 0.968107508122921,
+      "firing_rate": 0.03189249187707901,
+      "mean_per_timestep": 13063.164679276315,
+      "std_per_timestep": 6803.642362895765,
+      "min_per_timestep": 4220.5625,
+      "max_per_timestep": 24428.71107884457
+    },
+    "patch_embed.proj_lif2": {
+      "total_spikes": 95795.51331208882,
+      "output_units": 204800.0,
+      "total_possible_spikes": 3276800.0,
+      "sparsity": 0.9707655293847386,
+      "firing_rate": 0.02923447061526148,
+      "mean_per_timestep": 5987.219582005551,
+      "std_per_timestep": 1649.3996268824528,
+      "min_per_timestep": 1389.033168993498,
+      "max_per_timestep": 7968.277003238076
+    },
+    "patch_embed.proj_lif3": {
+      "total_spikes": 15684.58210834704,
+      "output_units": 102400.0,
+      "total_possible_spikes": 1638400.0,
+      "sparsity": 0.9904268908030108,
+      "firing_rate": 0.00957310919698916,
+      "mean_per_timestep": 980.2863809685958,
+      "std_per_timestep": 284.41242529216566,
+      "min_per_timestep": 85.61938049918727,
+      "max_per_timestep": 1408.5400221975226
+    },
+    "patch_embed.rpe_lif": {
+      "total_spikes": 28853.41214792352,
+      "output_units": 25600.0,
+      "total_possible_spikes": 409600.0,
+      "sparsity": 0.9295570992482337,
+      "firing_rate": 0.0704429007517664,
+      "mean_per_timestep": 1803.3382600483142,
+      "std_per_timestep": 255.30481860512182,
+      "min_per_timestep": 1016.8140082108347,
+      "max_per_timestep": 2304.1521381578946
+    },
+    "block.0.attn.q_lif": {
+      "total_spikes": 29175.11650647615,
+      "output_units": 25600.0,
+      "total_possible_spikes": 409600.0,
+      "sparsity": 0.9287716882166109,
+      "firing_rate": 0.07122831178338905,
+      "mean_per_timestep": 1823.4447824578535,
+      "std_per_timestep": 548.2200170818128,
+      "min_per_timestep": 350.88294962832805,
+      "max_per_timestep": 2330.9561414216696
+    },
+    "block.0.attn.k_lif": {
+      "total_spikes": 24662.6875,
+      "output_units": 25600.0,
+      "total_possible_spikes": 409600.0,
+      "sparsity": 0.939788360595703,
+      "firing_rate": 0.06021163940429688,
+      "mean_per_timestep": 1541.41796875,
+      "std_per_timestep": 308.06282515274853,
+      "min_per_timestep": 612.2867327238384,
+      "max_per_timestep": 2182.4653240003086
+    },
+    "block.0.attn.v_lif": {
+      "total_spikes": 18663.049624794407,
+      "output_units": 25600.0,
+      "total_possible_spikes": 409600.0,
+      "sparsity": 0.9544359140019667,
+      "firing_rate": 0.04556408599803322,
+      "mean_per_timestep": 1166.4406015496504,
+      "std_per_timestep": 216.74293086403296,
+      "min_per_timestep": 426.02700123034026,
+      "max_per_timestep": 1341.256167763158
+    },
+    "block.0.attn.attn_lif": {
+      "total_spikes": 15814.119243421053,
+      "output_units": 25600.0,
+      "total_possible_spikes": 409600.0,
+      "sparsity": 0.9613913104408667,
+      "firing_rate": 0.03860868955913343,
+      "mean_per_timestep": 988.3824531153629,
+      "std_per_timestep": 360.59373393811677,
+      "min_per_timestep": 1.099095394736842,
+      "max_per_timestep": 1276.733004519814
+    },
+    "block.0.attn.proj_lif": {
+      "total_spikes": 54114.51809210526,
+      "output_units": 25600.0,
+      "total_possible_spikes": 409600.0,
+      "sparsity": 0.8678844773141962,
+      "firing_rate": 0.13211552268580387,
+      "mean_per_timestep": 3382.1573823627673,
+      "std_per_timestep": 804.6348499498869,
+      "min_per_timestep": 501.7060032894737,
+      "max_per_timestep": 3920.660499974301
+    },
+    "block.0.mlp.fc1_lif": {
+      "total_spikes": 11433.527549342105,
+      "output_units": 6400.0,
+      "total_possible_spikes": 102400.0,
+      "sparsity": 0.8883444575259561,
+      "firing_rate": 0.11165554247404401,
+      "mean_per_timestep": 714.5954718338816,
+      "std_per_timestep": 190.06471197228683,
+      "min_per_timestep": 582.6215735987613,
+      "max_per_timestep": 1374.680509868421
+    },
+    "block.0.mlp.fc2_lif": {
+      "total_spikes": 130946.51644736843,
+      "output_units": 25600.0,
+      "total_possible_spikes": 409600.0,
+      "sparsity": 0.680306356329667,
+      "firing_rate": 0.3196936436703331,
+      "mean_per_timestep": 8184.157277960527,
+      "std_per_timestep": 2700.6719464753805,
+      "min_per_timestep": 552.4921875,
+      "max_per_timestep": 9748.35183876439
+    }
+  },
+  "total_spikes": 1706399.75,
+  "total_units": 1721600.0,
+  "total_possible_spikes": 27545600.0,
+  "overall_sparsity": 0.9380518213435176
+}

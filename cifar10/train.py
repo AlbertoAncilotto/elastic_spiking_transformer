@@ -97,6 +97,16 @@ parser.add_argument('--patch-size', type=int, default=None, metavar='N',
                     help='Image patch size')
 parser.add_argument('--mlp-ratio', type=int, default=None, metavar='N',
                     help='expand ration of embedding dimension in MLP block')
+parser.add_argument('--use-xisps', action='store_true', default=False,
+                    help='Use XiSPS instead of standard SPS for patch embedding')
+parser.add_argument('--xisps-elastic', action='store_true', default=False,
+                    help='Enable elastic/multi-granularity mode for XiSPS')
+parser.add_argument('--sps-lower-filter-limit', type=int, default=4, metavar='N',
+                    help='Lower limit for filter count in elastic XiSPS (default: 4)')
+parser.add_argument('--sps-alpha', type=float, default=1.0, metavar='ALPHA',
+                    help='SPS channel scaling factor (default: 1.0)')
+parser.add_argument('--num-granularities', type=int, default=4, metavar='N',
+                    help='Number of granularities for elastic networks (default: 4)')
 # Dataset / Model parameters
 parser.add_argument('-data-dir', metavar='DIR',default="/home/zhou/Compact-Transformers-main/cifar-10-python/",
                     help='path to dataset')
@@ -301,6 +311,10 @@ parser.add_argument('--torchscript', dest='torchscript', action='store_true',
                     help='convert model torchscript for inference')
 parser.add_argument('--log-wandb', action='store_true', default=True,
                     help='log training and validation metrics to wandb')
+parser.add_argument('--wandb-project', type=str, default=None,
+                    help='wandb project name (default: elastic_spikformer_c10 or c100 based on dataset)')
+parser.add_argument('--wandb-run-name', type=str, default=None,
+                    help='wandb run name (default: auto-generated based on config)')
 
 
 def _parse_args():
@@ -326,7 +340,26 @@ def main():
 
     if args.log_wandb:
         if has_wandb:
-            wandb.init(project=args.experiment, config=args)
+            # Determine wandb project name based on dataset if not specified
+            if args.wandb_project is None:
+                if 'cifar100' in args.dataset.lower():
+                    wandb_project = 'elastic_spikformer_c100'
+                else:
+                    wandb_project = 'elastic_spikformer_c10'
+            else:
+                wandb_project = args.wandb_project
+            
+            # Generate run name if not specified
+            if args.wandb_run_name is None:
+                sps_type = 'xisps' if args.use_xisps else 'sps'
+                if args.use_xisps and args.sps_alpha >= 2:
+                    sps_type = 'xisps2'
+                elastic_str = '-elastic' if args.xisps_elastic else ''
+                wandb_run_name = f"{sps_type}{elastic_str}_a{args.sps_alpha}_T{args.time_step}_h{args.num_heads}_{args.dim}_d{args.layer}"
+            else:
+                wandb_run_name = args.wandb_run_name
+            
+            wandb.init(project=wandb_project, name=wandb_run_name, config=args)
         else:
             _logger.warning("You've requested to log metrics to wandb but package not found. "
                             "Metrics not being logged to wandb, try `pip install wandb`")
@@ -377,7 +410,12 @@ def main():
         patch_size=args.patch_size, embed_dims=args.dim, num_heads=args.num_heads, mlp_ratios=args.mlp_ratio,
         in_channels=3, num_classes=args.num_classes, qkv_bias=False,
         depths=args.layer, sr_ratios=1,
-        T=args.time_step
+        T=args.time_step,
+        use_xisps=args.use_xisps,
+        xisps_elastic=args.xisps_elastic,
+        sps_lower_filter_limit=args.sps_lower_filter_limit,
+        sps_alpha=args.sps_alpha,
+        num_granularities=args.num_granularities
     )
     print("Creating model")
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)

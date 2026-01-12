@@ -203,15 +203,16 @@ class SSA(nn.Module):
 
 class XiSSA(nn.Module):
     def __init__(self, dim, num_heads=8, num_granularities=4, qkv_bias=False, 
-                 qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1):
+                 qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1, lower_heads_limit=2):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
-        
+
         self.dim = dim
         self.max_num_heads = num_heads
         self.head_dim = dim // num_heads
         self.num_granularities = num_granularities
         self.scale = qk_scale if qk_scale is not None else 0.25
+        self.lower_heads_limit = lower_heads_limit
         self.head_granularities = self._generate_head_granularities(num_heads, num_granularities)
         
         # Q, K, V convolutions
@@ -238,7 +239,7 @@ class XiSSA(nn.Module):
     def _generate_head_granularities(self, max_heads, num_granularities):
         if num_granularities == 1:
             return [max_heads]
-        min_heads = max(2, max_heads // (2 ** (num_granularities - 1)))
+        min_heads = max(self.lower_heads_limit, max_heads // (2 ** (num_granularities - 1)))
         granularities = np.logspace(
             np.log2(min_heads), 
             np.log2(max_heads), 
@@ -284,6 +285,7 @@ class XiSSA(nn.Module):
             granularity_idx = granularity
         
         current_num_heads = self.head_granularities[granularity_idx]
+        self.current_num_heads = current_num_heads
         x_flat = x.flatten(0, 1)  # (T*B, C, N)
         
         # Q branch
@@ -338,11 +340,11 @@ class XiSSA(nn.Module):
 
 class Block(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, sr_ratio=1, num_granularities=4):
+                 drop_path=0., norm_layer=nn.LayerNorm, sr_ratio=1, num_granularities=4, attn_lower_heads_limit=2):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = XiSSA(dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                              attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, num_granularities=num_granularities)
+                              attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, num_granularities=num_granularities, lower_heads_limit=attn_lower_heads_limit)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -432,6 +434,7 @@ class XiConvMultiGran(nn.Module):
         pool: Optional[bool] = None,
         batchnorm: Optional[bool] = False,
         num_granularities: int = 4,
+        lower_filter_limit: int = 4,
     ):
         super().__init__()
         self.compression = int(gamma)
@@ -440,6 +443,7 @@ class XiConvMultiGran(nn.Module):
         self.num_granularities = num_granularities
         self.c_out = c_out
         self.c_in = c_in
+        self.lower_filter_limit = lower_filter_limit
         
         self.c_compr_granularities = self._generate_granularities(c_out // self.compression, num_granularities)
         
@@ -471,7 +475,7 @@ class XiConvMultiGran(nn.Module):
         if num_granularities == 1:
             return [max_channels]
         
-        min_channels = max(4, max_channels // (2 ** (num_granularities-1)))
+        min_channels = max(self.lower_filter_limit, max_channels // (2 ** (num_granularities-1)))
         granularities = np.logspace(
             np.log2(min_channels), 
             np.log2(max_channels), 
@@ -604,8 +608,93 @@ class SPS(nn.Module):
 
         return x
 
+class XiSPSv2(nn.Module):
+    def __init__(self, img_size_h=128, img_size_w=128, patch_size=4, in_channels=2, embed_dims=256, alpha=1.0, num_granularities=1, lower_filter_limit=4):
+        super().__init__()
+        self.image_size = [img_size_h, img_size_w]
+        patch_size = to_2tuple(patch_size)
+        self.patch_size = patch_size
+        self.C = in_channels
+        self.H, self.W = self.image_size[0] // patch_size[0], self.image_size[1] // patch_size[1]
+        self.num_patches = self.H * self.W
+        self.multi_granularity = num_granularities>1
+
+        c1 = int((embed_dims // 8) * alpha)
+        c2 = int((embed_dims // 4) * alpha)
+        c3 = int((embed_dims // 2) * alpha)
+        
+        # self.proj_conv = nn.Xi(in_channels, c1, kernel_size=3, stride=1, padding=1, bias=False)
+        self.proj_conv = XiConv(in_channels, c1, kernel_size=3, stride=1, padding=1)
+        self.proj_bn = nn.BatchNorm2d(c1)
+        self.proj_lif = MultiStepLIFNode(tau=2.0, detach_reset=True, backend=BACKEND)
+        self.maxpool = torch.nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        self.proj_conv1 = XiConv(c1, c2, kernel_size=3, stride=1, padding=1)
+        self.proj_bn1 = nn.BatchNorm2d(c2)
+        self.proj_lif1 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend=BACKEND)
+        self.maxpool1 = torch.nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        self.proj_conv2 = XiConv(c2, c3, kernel_size=3, stride=1, padding=1)#, bias=False)
+        self.proj_bn2 = nn.BatchNorm2d(c3)
+        self.proj_lif2 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend=BACKEND)
+        self.maxpool2 = torch.nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        if num_granularities>1:
+            self.proj_conv3 = XiConvMultiGran(c3, embed_dims, kernel_size=3, stride=1, padding=1, num_granularities=num_granularities, lower_filter_limit=lower_filter_limit)
+        else:
+            self.proj_conv3 = XiConv(c3, embed_dims, kernel_size=3, stride=1, padding=1)#, bias=False)
+        self.proj_bn3 = nn.BatchNorm2d(embed_dims)
+        self.proj_lif3 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend=BACKEND)
+        self.maxpool3 = torch.nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        if num_granularities>1:
+            self.rpe_conv = XiConvMultiGran(embed_dims, embed_dims, kernel_size=3, stride=1, padding=1, num_granularities=num_granularities, lower_filter_limit=lower_filter_limit)
+        else:
+            self.rpe_conv = XiConv(embed_dims, embed_dims, kernel_size=3, stride=1, padding=1)#, bias=False)
+        self.rpe_bn = nn.BatchNorm2d(embed_dims)
+        self.rpe_lif = MultiStepLIFNode(tau=2.0, detach_reset=True, backend=BACKEND)
+
+    def forward(self, x, granularity=None):
+        T, B, C, H, W = x.shape
+        if granularity is None:
+            granularity_idx = np.random.randint(0, 4)
+        else:
+            granularity_idx = granularity 
+        x = self.proj_conv(x.flatten(0, 1)) # have some fire value
+        x = self.proj_bn(x).reshape(T,B,-1,H,W).contiguous()
+        x = self.proj_lif(x).flatten(0,1).contiguous()
+        x = self.maxpool(x)
+
+        x = self.proj_conv1(x)
+        x = self.proj_bn1(x).reshape(T, B, -1, H//2, W//2).contiguous()
+        x = self.proj_lif1(x).flatten(0, 1).contiguous()
+        x = self.maxpool1(x)
+
+        x = self.proj_conv2(x)
+        x = self.proj_bn2(x).reshape(T, B, -1, H//4, W//4).contiguous()
+        x = self.proj_lif2(x).flatten(0, 1).contiguous()
+        x = self.maxpool2(x)
+        
+        if self.multi_granularity:
+            x = self.proj_conv3(x, granularity_idx)
+        else:
+            x = self.proj_conv3(x)
+        x = self.proj_bn3(x).reshape(T, B, -1, H//8, W//8).contiguous()
+        x = self.proj_lif3(x).flatten(0, 1).contiguous()
+        x = self.maxpool3(x)
+
+        if self.multi_granularity:
+            x_rpe = self.rpe_bn(self.rpe_conv(x, granularity_idx)).reshape(T,B,-1,H//16,W//16).contiguous()
+        else:
+            x_rpe = self.rpe_bn(self.rpe_conv(x)).reshape(T,B,-1,H//16,W//16).contiguous()
+        x_rpe = self.rpe_lif(x_rpe).flatten(0,1)
+        x = x + x_rpe
+        x = x.reshape(T, B, -1, (H//16)*(H//16)).contiguous()
+
+        return x
+    
 class XiSPS(nn.Module):
-    def __init__(self, img_size_h=128, img_size_w=128, patch_size=4, in_channels=2, embed_dims=256, alpha=1.0, num_granularities=1):
+    def __init__(self, img_size_h=128, img_size_w=128, patch_size=4, in_channels=2, embed_dims=256, alpha=1.0, num_granularities=1, lower_filter_limit=4):
         super().__init__()
         self.image_size = [img_size_h, img_size_w]
         patch_size = to_2tuple(patch_size)
@@ -629,7 +718,7 @@ class XiSPS(nn.Module):
         self.proj_lif2 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend=BACKEND)
         
         if num_granularities>1:
-            self.proj_conv3 = XiConvMultiGran(c3, embed_dims, kernel_size=3, batchnorm=True, gamma=1, pool=2, act=False, num_granularities=num_granularities)
+            self.proj_conv3 = XiConvMultiGran(c3, embed_dims, kernel_size=3, batchnorm=True, gamma=1, pool=2, act=False, num_granularities=num_granularities, lower_filter_limit=lower_filter_limit)
         else:
             self.proj_conv3 = XiConv(c3, embed_dims, kernel_size=3, batchnorm=True, pool=2)
         self.proj_lif3 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend=BACKEND)
@@ -669,7 +758,7 @@ class Spikformer(nn.Module):
                  embed_dims=[64, 128, 256], num_heads=[1, 2, 4], mlp_ratios=[4, 4, 4], qkv_bias=False, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
                  depths=[6, 8, 6], sr_ratios=[8, 4, 2], T = 16, num_granularities=4, sps_alpha=1.0,
-                 use_xisps = False, xisps_elastic = False,
+                 use_xisps = False, xisps_elastic = False, attn_lower_heads_limit=2, sps_lower_filter_limit=4,
                  **kwargs):
         super().__init__()
         self.T = T  # time step
@@ -688,13 +777,27 @@ class Spikformer(nn.Module):
                                     embed_dims=embed_dims,
                                     alpha=sps_alpha)
         else:
-            patch_embed = XiSPS(img_size_h=img_size_h,
-                                    img_size_w=img_size_w,
-                                    patch_size=patch_size,
-                                    in_channels=in_channels,
-                                    embed_dims=embed_dims,
-                                    alpha=sps_alpha,
-                                    num_granularities=num_granularities if xisps_elastic else 1)
+            if sps_alpha <= 1.0:
+                # print("AAAAAAAAAAAAAAAAAA WRONG SPSSSS VALUE AAAAAAAAAAAAAAA")
+                print("Using XiSPS v1: alpha = ", sps_alpha)
+                patch_embed = XiSPS(img_size_h=img_size_h,
+                                        img_size_w=img_size_w,
+                                        patch_size=patch_size,
+                                        in_channels=in_channels,
+                                        embed_dims=embed_dims,
+                                        alpha=sps_alpha,
+                                        num_granularities=num_granularities if xisps_elastic else 1,
+                                        lower_filter_limit=sps_lower_filter_limit)
+            else:
+                print("Using XiSPS v2: alpha = ", sps_alpha)
+                patch_embed = XiSPSv2(img_size_h=img_size_h,
+                                        img_size_w=img_size_w,
+                                        patch_size=patch_size,
+                                        in_channels=in_channels,
+                                        embed_dims=embed_dims,
+                                        alpha=sps_alpha,
+                                        num_granularities=num_granularities if xisps_elastic else 1,
+                                        lower_filter_limit=sps_lower_filter_limit)
 
         
         num_patches = patch_embed.num_patches
@@ -702,7 +805,7 @@ class Spikformer(nn.Module):
         block = nn.ModuleList([Block(
             dim=embed_dims, num_heads=num_heads, mlp_ratio=mlp_ratios, qkv_bias=qkv_bias,
             qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[j],
-            norm_layer=norm_layer, sr_ratio=sr_ratios, num_granularities=num_granularities)
+            norm_layer=norm_layer, sr_ratio=sr_ratios, num_granularities=num_granularities, attn_lower_heads_limit=attn_lower_heads_limit)
             for j in range(depths)])
 
         setattr(self, f"patch_embed", patch_embed)

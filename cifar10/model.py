@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from typing import Union, Tuple, Optional
 from spikingjelly.clock_driven.neuron import MultiStepLIFNode
 from timm.models.layers import to_2tuple, trunc_normal_, DropPath
 from timm.models.registry import register_model
@@ -222,7 +223,7 @@ class XiSSA(nn.Module):
     def _generate_head_granularities(self, max_heads, num_granularities):
         if num_granularities == 1:
             return [max_heads]
-        min_heads = max(2, max_heads // (10 ** (num_granularities - 1)))
+        min_heads = max(4, max_heads // (10 ** (num_granularities - 1)))
         granularities = np.logspace(np.log10(min_heads), np.log10(max_heads), num_granularities, dtype=int, base=10.0)
         granularities[-1] = max_heads
         return granularities
@@ -315,6 +316,189 @@ class Block(nn.Module):
         return x
 
 
+class XiConv(nn.Module):
+    """Compressed convolution module with optional pooling and batch normalization."""
+
+    def __init__(
+        self,
+        c_in: int,
+        c_out: int,
+        kernel_size: Union[int, Tuple] = 3,
+        stride: Union[int, Tuple] = 1,
+        padding: Optional[Union[int, Tuple]] = None,
+        groups: Optional[int] = 1,
+        act: Optional[bool] = False,
+        gamma: Optional[float] = 2,
+        pool: Optional[bool] = None,
+        batchnorm: Optional[bool] = False,
+    ):
+        super().__init__()
+        self.compression = int(gamma)
+        self.attention_lite_ch_in = c_out // self.compression // 2
+        self.pool = pool
+        self.batchnorm = batchnorm
+
+        if self.compression > 1:
+            self.compression_conv = nn.Conv2d(
+                c_in, c_out // self.compression, 1, 1, groups=groups, bias=False
+            )
+
+        self.main_conv = nn.Conv2d(
+            c_out // self.compression if self.compression > 1 else c_in,
+            c_out,
+            kernel_size,
+            stride,
+            groups=groups,
+            padding=kernel_size // 2 if padding is None else padding,
+            bias=False,
+        )
+        self.act = (
+            nn.SiLU()
+            if act is True
+            else (act if isinstance(act, nn.Module) else nn.Identity())
+        )
+
+        if pool:
+            self.mp = nn.MaxPool2d(pool)
+
+        if batchnorm:
+            self.bn = nn.BatchNorm2d(c_out)
+
+    def forward(self, x: torch.Tensor):
+        # compression convolution
+        if self.compression > 1:
+            x = self.compression_conv(x)
+
+        if self.pool:
+            x = self.mp(x)
+
+        # main conv and activation
+        x = self.main_conv(x)
+        if self.batchnorm:
+            x = self.bn(x)
+        x = self.act(x)
+
+        return x
+
+
+class XiConvMultiGran(nn.Module):
+    """Multi-granularity compressed convolution module."""
+    
+    def __init__(
+        self,
+        c_in: int,
+        c_out: int,
+        kernel_size: Union[int, Tuple] = 3,
+        stride: Union[int, Tuple] = 1,
+        padding: Optional[Union[int, Tuple]] = None,
+        groups: Optional[int] = 1,
+        act: Optional[bool] = False,
+        gamma: Optional[float] = 2,
+        pool: Optional[bool] = None,
+        batchnorm: Optional[bool] = False,
+        num_granularities: int = 4,
+        lower_filter_limit: int = 4,
+    ):
+        super().__init__()
+        self.compression = int(gamma)
+        self.pool = pool
+        self.batchnorm = batchnorm
+        self.num_granularities = num_granularities
+        self.c_out = c_out
+        self.c_in = c_in
+        self.lower_filter_limit = lower_filter_limit
+        
+        self.c_compr_granularities = self._generate_granularities(c_out // self.compression, num_granularities)
+        
+        self.c_compressed = c_out // self.compression if self.compression > 1 else c_in
+        if self.compression > 1:
+            self.compression_conv = nn.Conv2d(
+                c_in, c_out // self.compression, 1, 1, groups=groups, bias=False
+            )
+
+        self.main_conv = nn.Conv2d(
+            self.c_compressed,
+            c_out,
+            kernel_size,
+            stride,
+            groups=groups,
+            padding=kernel_size // 2 if padding is None else padding,
+            bias=False,
+        )
+        
+        if batchnorm:
+            self.main_bn = nn.BatchNorm2d(c_out)
+
+        if pool:
+            self.mp = nn.MaxPool2d(pool)
+
+    def _generate_granularities(self, max_channels, num_granularities):
+        """Generate log-spaced channel granularities ending at c_compressed."""
+        if num_granularities == 1:
+            return [max_channels]
+        
+        min_channels = max(self.lower_filter_limit, max_channels // (2 ** (num_granularities-1)))
+        granularities = np.logspace(
+            np.log2(min_channels), 
+            np.log2(max_channels), 
+            num=num_granularities, 
+            base=2.0
+        )
+        
+        granularities = [int(np.round(g / 4) * 4) for g in granularities]
+        granularities[-1] = max_channels
+        granularities = sorted(list(set(granularities)))
+        return granularities
+
+    def forward(self, x: torch.Tensor, granularity=None):
+        if granularity is None:
+            granularity_idx = np.random.randint(0, self.num_granularities)
+        else:
+            granularity_idx = granularity
+        
+        current_c_compressed = self.c_compr_granularities[granularity_idx]
+        
+        # Compression convolution
+        if self.compression > 1:
+            x = self.compression_conv(x)
+
+        x = x[:, :current_c_compressed, :, :]  # Slice channels
+
+        if self.pool:
+            x = self.mp(x)
+
+        # Main convolution
+        weight_sliced = self.main_conv.weight[:, :current_c_compressed, :, :] 
+        bias = self.main_conv.bias
+        x = torch.nn.functional.conv2d(x, weight_sliced, bias, stride=self.main_conv.stride,
+                                       padding=self.main_conv.padding, groups=self.main_conv.groups) 
+        
+        if self.batchnorm:
+            x = self.main_bn(x)
+
+        return x
+    
+    def get_granularity_info(self):
+        params = self.get_granularity_parameters()
+        return {
+            'c_compr_granularities': self.c_compr_granularities,
+            'num_granularities': self.num_granularities,
+            'params': params
+        }
+    
+    def get_granularity_parameters(self):
+        params = []
+        c_in = self.c_in
+        for c_compr_g in self.c_compr_granularities:
+            total = (
+                c_in * c_compr_g +              # compression_conv
+                c_compr_g * self.c_out * 9 +    # main_conv (3x3)
+                2 * self.c_out                  # main_bn
+            )
+            params.append(total)
+        return params
+
+
 class SPS(nn.Module):
     def __init__(self, img_size_h=128, img_size_w=128, patch_size=4, in_channels=2, embed_dims=256, alpha=1.0):
         super().__init__()
@@ -391,27 +575,238 @@ class SPS(nn.Module):
         return x
 
 
+class XiSPSv2(nn.Module):
+    """XiConv-based Spike Patch Splitting with optional multi-granularity support.
+    
+    Uses XiConv for compression and outputs (T, B, N, C) format for cifar10.
+    """
+    
+    def __init__(self, img_size_h=128, img_size_w=128, patch_size=4, in_channels=2, 
+                 embed_dims=256, alpha=1.0, num_granularities=1, lower_filter_limit=4):
+        super().__init__()
+        self.image_size = [img_size_h, img_size_w]
+        patch_size = to_2tuple(patch_size)
+        self.patch_size = patch_size
+        self.C = in_channels
+        self.H, self.W = (
+            self.image_size[0] // patch_size[0],
+            self.image_size[1] // patch_size[1],
+        )
+        self.num_patches = self.H * self.W
+        self.multi_granularity = num_granularities > 1
+        self.num_granularities = num_granularities
+
+        c1 = int((embed_dims // 8) * alpha)
+        c2 = int((embed_dims // 4) * alpha)
+        c3 = int((embed_dims // 2) * alpha)
+        c4 = int(embed_dims * alpha)
+        c_out = embed_dims  # final output unchanged
+        
+        # ----------- Stage 0 ------------
+        self.proj_conv = XiConv(in_channels, c1, kernel_size=3, stride=1, padding=1)
+        self.proj_bn = nn.BatchNorm2d(c1)
+        self.proj_lif = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        # ----------- Stage 1 ------------
+        self.proj_conv1 = XiConv(c1, c2, kernel_size=3, stride=1, padding=1)
+        self.proj_bn1 = nn.BatchNorm2d(c2)
+        self.proj_lif1 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+        self.maxpool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        # ----------- Stage 2 ------------
+        self.proj_conv2 = XiConv(c2, c3, kernel_size=3, stride=1, padding=1)
+        self.proj_bn2 = nn.BatchNorm2d(c3)
+        self.proj_lif2 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+        self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        # ----------- Stage 3 (with optional multi-granularity) ------------
+        if num_granularities > 1:
+            self.proj_conv3 = XiConvMultiGran(c3, c4, kernel_size=3, stride=1, padding=1,
+                                               num_granularities=num_granularities, 
+                                               lower_filter_limit=lower_filter_limit)
+        else:
+            self.proj_conv3 = XiConv(c3, c4, kernel_size=3, stride=1, padding=1)
+        self.proj_bn3 = nn.BatchNorm2d(c4)
+        self.proj_lif3 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+        self.maxpool3 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+
+        # ----------- RPE stage (with optional multi-granularity) ------------
+        if num_granularities > 1:
+            self.rpe_conv = XiConvMultiGran(c4, c_out, kernel_size=3, stride=1, padding=1,
+                                             num_granularities=num_granularities,
+                                             lower_filter_limit=lower_filter_limit)
+        else:
+            self.rpe_conv = XiConv(c4, c_out, kernel_size=3, stride=1, padding=1)
+        self.rpe_bn = nn.BatchNorm2d(c_out)
+        self.rpe_lif = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+
+    def forward(self, x, granularity=None):
+        T, B, C, H, W = x.shape
+        if granularity is None:
+            granularity_idx = np.random.randint(0, self.num_granularities)
+        else:
+            granularity_idx = granularity
+            
+        x = self.proj_conv(x.flatten(0, 1))
+        x = self.proj_bn(x).reshape(T, B, -1, H, W).contiguous()
+        x = self.proj_lif(x).flatten(0, 1).contiguous()
+        x = self.maxpool(x)
+
+        x = self.proj_conv1(x)
+        x = self.proj_bn1(x).reshape(T, B, -1, H//2, W//2).contiguous()
+        x = self.proj_lif1(x).flatten(0, 1).contiguous()
+        x = self.maxpool1(x)
+
+        x = self.proj_conv2(x)
+        x = self.proj_bn2(x).reshape(T, B, -1, H//4, W//4).contiguous()
+        x = self.proj_lif2(x).flatten(0, 1).contiguous()
+        x = self.maxpool2(x)
+        
+        if self.multi_granularity:
+            x = self.proj_conv3(x, granularity_idx)
+        else:
+            x = self.proj_conv3(x)
+        x = self.proj_bn3(x).reshape(T, B, -1, H//8, W//8).contiguous()
+        x = self.proj_lif3(x).flatten(0, 1).contiguous()
+        x = self.maxpool3(x)
+
+        x_feat = x.reshape(T, B, -1, H//16, W//16).contiguous()
+        if self.multi_granularity:
+            x = self.rpe_conv(x, granularity_idx)
+        else:
+            x = self.rpe_conv(x)
+        x = self.rpe_bn(x).reshape(T, B, -1, H//16, W//16).contiguous()
+        x = self.rpe_lif(x)
+        x = x + x_feat
+
+        x = x.flatten(-2).transpose(-1, -2)  # T,B,N,C
+        return x
+
+
+class XiSPS(nn.Module):
+    """Simplified XiConv-based Spike Patch Splitting with optional multi-granularity support.
+    
+    Uses XiConv with integrated pooling and batchnorm, outputs (T, B, N, C) format for cifar10.
+    """
+    
+    def __init__(self, img_size_h=128, img_size_w=128, patch_size=4, in_channels=2, 
+                 embed_dims=256, alpha=1.0, num_granularities=1, lower_filter_limit=4):
+        super().__init__()
+        self.image_size = [img_size_h, img_size_w]
+        patch_size = to_2tuple(patch_size)
+        self.patch_size = patch_size
+        self.C = in_channels
+        self.H, self.W = (
+            self.image_size[0] // patch_size[0],
+            self.image_size[1] // patch_size[1],
+        )
+        self.num_patches = self.H * self.W
+        self.multi_granularity = num_granularities > 1
+        self.num_granularities = num_granularities
+
+        c1 = int((embed_dims // 8) * alpha)
+        c2 = int((embed_dims // 4) * alpha)
+        c3 = int((embed_dims // 2) * alpha)
+        c_out = embed_dims
+        
+        # ----------- Stage 0 ------------
+        self.proj_conv = XiConv(in_channels, c1, kernel_size=3, batchnorm=True, pool=2, act=False, gamma=1)
+        self.proj_lif = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+        
+        # ----------- Stage 1 ------------
+        self.proj_conv1 = XiConv(c1, c2, kernel_size=3, batchnorm=True, pool=2, act=False, gamma=1)
+        self.proj_lif1 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+        
+        # ----------- Stage 2 ------------
+        self.proj_conv2 = XiConv(c2, c3, kernel_size=3, batchnorm=True, pool=2, act=False)
+        self.proj_lif2 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+        
+        # ----------- Stage 3 (with optional multi-granularity) ------------
+        if num_granularities > 1:
+            self.proj_conv3 = XiConvMultiGran(c3, c_out, kernel_size=3, batchnorm=True, gamma=1, 
+                                               pool=2, act=False, num_granularities=num_granularities, 
+                                               lower_filter_limit=lower_filter_limit)
+        else:
+            self.proj_conv3 = XiConv(c3, c_out, kernel_size=3, batchnorm=True, pool=2)
+        self.proj_lif3 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
+
+    def forward(self, x, granularity=None):
+        T, B, C, H, W = x.shape
+        if granularity is None:
+            granularity_idx = np.random.randint(0, self.num_granularities)
+        else:
+            granularity_idx = granularity
+
+        x = self.proj_conv(x.flatten(0, 1)).reshape(T, B, -1, H//2, W//2).contiguous()
+        x = self.proj_lif(x).flatten(0, 1).contiguous()
+
+        x = self.proj_conv1(x).reshape(T, B, -1, H//4, W//4).contiguous()
+        x = self.proj_lif1(x).flatten(0, 1).contiguous()
+
+        x = self.proj_conv2(x).reshape(T, B, -1, H//8, W//8).contiguous()
+        x = self.proj_lif2(x).flatten(0, 1).contiguous()
+
+        if self.multi_granularity:
+            x = self.proj_conv3(x, granularity_idx)
+        else:
+            x = self.proj_conv3(x)
+        x = x.reshape(T, B, -1, H//16, W//16).contiguous()
+        x = self.proj_lif3(x).flatten(0, 1).contiguous()
+
+        x = x.reshape(T, B, -1, (H//16)*(W//16)).contiguous()
+        x = x.transpose(-1, -2)  # T,B,N,C
+        return x
+
+
 class Spikformer(nn.Module):
     def __init__(self,
                  img_size_h=128, img_size_w=128, patch_size=16, in_channels=2, num_classes=11,
                  embed_dims=[64, 128, 256], num_heads=[1, 2, 4], mlp_ratios=[4, 4, 4], qkv_bias=False, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
-                 depths=[6, 8, 6], sr_ratios=[8, 4, 2], T = 4, num_granularities=4, sps_alpha=1.0
+                 depths=[6, 8, 6], sr_ratios=[8, 4, 2], T=4, num_granularities=4, sps_alpha=1.0,
+                 use_xisps=False, xisps_elastic=False, sps_lower_filter_limit=4,
+                 **kwargs
                  ):
         super().__init__()
         self.T = T  # time step
         self.num_classes = num_classes
         self.depths = depths
         self.num_granularities = num_granularities
+        self.use_xisps = use_xisps
+        self.xisps_elastic = xisps_elastic
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths)]  # stochastic depth decay rule
 
-        patch_embed = SPS(img_size_h=img_size_h,
-                                 img_size_w=img_size_w,
-                                 patch_size=patch_size,
-                                 in_channels=in_channels,
-                                 embed_dims=embed_dims,
-                                 alpha=sps_alpha)
+        # Choose SPS variant based on configuration
+        if not use_xisps:
+            patch_embed = SPS(img_size_h=img_size_h,
+                              img_size_w=img_size_w,
+                              patch_size=patch_size,
+                              in_channels=in_channels,
+                              embed_dims=embed_dims,
+                              alpha=sps_alpha)
+        else:
+            sps_num_granularities = num_granularities if xisps_elastic else 1
+            # Use XiSPSv2 for sps_alpha >= 2, otherwise use XiSPS
+            if sps_alpha >= 2:
+                patch_embed = XiSPSv2(img_size_h=img_size_h,
+                                      img_size_w=img_size_w,
+                                      patch_size=patch_size,
+                                      in_channels=in_channels,
+                                      embed_dims=embed_dims,
+                                      alpha=sps_alpha,
+                                      num_granularities=sps_num_granularities,
+                                      lower_filter_limit=sps_lower_filter_limit)
+            else:
+                patch_embed = XiSPS(img_size_h=img_size_h,
+                                    img_size_w=img_size_w,
+                                    patch_size=patch_size,
+                                    in_channels=in_channels,
+                                    embed_dims=embed_dims,
+                                    alpha=sps_alpha,
+                                    num_granularities=sps_num_granularities,
+                                    lower_filter_limit=sps_lower_filter_limit)
 
         block = nn.ModuleList([Block(
             dim=embed_dims, num_heads=num_heads, mlp_ratio=mlp_ratios, qkv_bias=qkv_bias,
@@ -455,7 +850,10 @@ class Spikformer(nn.Module):
         block = getattr(self, f"block")
         patch_embed = getattr(self, f"patch_embed")
 
-        x = patch_embed(x)
+        if self.use_xisps:
+            x = patch_embed(x, granularity=granularity)
+        else:
+            x = patch_embed(x)
         for blk in block:
             x = blk(x, granularity=granularity)
         return x.mean(2)
