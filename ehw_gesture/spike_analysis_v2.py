@@ -5,19 +5,26 @@ import sys
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import torchinfo
 
 # Use clock_driven for SpikingJelly v0.0.0.0.12
 from spikingjelly.clock_driven import neuron, functional
 from timm.models import create_model
 
-# Import your model definition
-# Assuming 'model.py' is in the same directory or python path
+# Import your model definitions
 import model
+from model import spikformer
+from model_spikformerlegacy import spikformer_legacy
+from model_qkformer import QKFormer
 from ehw_gesture.ehwgesture import EHWGesture 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Spike Analysis for Spikformer')
-    # Model architecture args
+    # Model selection
+    parser.add_argument('--model', default='spikformer', 
+                        choices=['spikformer', 'spikformer_legacy', 'QKFormer'],
+                        help='model architecture to analyze')
+    # Model architecture args (only used for spikformer)
     parser.add_argument('--patch-size', type=int, default=16, help='patch size')
     parser.add_argument('--embed-dims', type=int, default=256, help='embedding dimensions')
     parser.add_argument('--num-heads', type=int, default=32, help='number of attention heads')
@@ -29,12 +36,12 @@ def parse_args():
     parser.add_argument('--use-xisps', action='store_true', default=True)
     parser.add_argument('--xisps-elastic', action='store_true', default=True)
     parser.add_argument('--num-classes', type=int, default=22, help='number of classes')
-    parser.add_argument('--attn-lower-heads-limit', type=int, default=2)
+    parser.add_argument('--attn-lower-heads-limit', type=int, default=8)
     parser.add_argument('--sps-lower-filter-limit', type=int, default=16)
     
     # Analysis args
-    parser.add_argument('--checkpoint', default="logs/xisps2-elastic_alpha2.0_t32/spikformer_b8_T32_Ttrain32_wd0.06_adamw_cnf_ADD/lr0.001/checkpoint_max_test_acc1.pth", help='path to checkpoint')
-    parser.add_argument('--model-name', default='default_model', help='model name for output directory')
+    parser.add_argument('--checkpoint', default="logs/final_xisps2a2_t16_h32_256_d2_lfl16/spikformer_b16_T16_Ttrain16_wd0.06_adamw_cnf_ADD/lr0.001/checkpoint_max_test_acc1.pth", help='path to checkpoint')
+    parser.add_argument('--model-name', default='xispikeformer_t16', help='model name for output directory')
     
     # Data args
     parser.add_argument('--data-path', default='data/ehwgesture/', help='dataset path')
@@ -57,6 +64,24 @@ def get_activation_hook(layer_name, storage_dict):
         storage_dict[layer_name] = spikes.detach().cpu()
     return hook
 
+def _generate_granularities_conv(conv_lower_filter_limit, max_channels, num_granularities):
+        """Generate log-spaced channel granularities ending at c_compressed."""
+        if num_granularities == 1:
+            return [max_channels]
+        
+        min_channels = max(conv_lower_filter_limit, max_channels // (2 ** (num_granularities-1)))
+        granularities = np.logspace(
+            np.log2(min_channels), 
+            np.log2(max_channels), 
+            num=num_granularities, 
+            base=2.0
+        )
+        
+        granularities = [int(np.round(g / 4) * 4) for g in granularities]
+        granularities[-1] = max_channels
+        granularities = sorted(list(set(granularities)))
+        return granularities
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -70,7 +95,7 @@ if __name__ == "__main__":
     class Logger:
         def __init__(self, filepath):
             self.terminal = sys.stdout
-            self.log = open(filepath, 'w')
+            self.log = open(filepath, 'w', encoding='utf-8')
         def write(self, message):
             self.terminal.write(message)
             self.log.write(message)
@@ -85,11 +110,19 @@ if __name__ == "__main__":
     # 1. Simulation Parameters
     T = args.T   # Time steps
     N = args.batch_size    # Batch size
-    granularities = [[0, 0, 0], [1, 1, 1], [2, 2, 2], [3, 3, 3]]
+    
+    # Granularity settings (only for spikformer with elastic support)
+    if args.model == 'spikformer':
+        granularities = [[0, 0, 0], [1, 1, 1], [2, 2, 2], [3, 3, 3]]
+    else:
+        # For non-elastic models, use a single "None" granularity
+        granularities = [None]
     
     # RECOMMENDED: Use CPU for analysis to avoid SpikingJelly 0.0.0.0.12 CUDA kernel errors
     device = 'cuda' 
     print(f"Running analysis on: {device.upper()}")
+    print(f"Model: {args.model}")
+    print(f"Supports granularity: {args.model == 'spikformer'}")
 
     # Load real data
     print("Loading EHWGesture dataset...")
@@ -110,24 +143,52 @@ if __name__ == "__main__":
     print(f"Dataset loaded: {len(dataset)} samples")
 
     # 2. Create Model
-    print("Creating model...")
-    model = create_model(
-        'spikformer',
-        pretrained=False,
-        patch_size=args.patch_size,
-        embed_dims=args.embed_dims,
-        num_heads=args.num_heads,
-        mlp_ratios=args.mlp_ratios,
-        in_channels=args.in_channels,
-        num_classes=args.num_classes,
-        depths=args.depths,
-        sr_ratios=args.sr_ratios,
-        sps_alpha=args.sps_alpha,
-        use_xisps=args.use_xisps,
-        xisps_elastic=args.xisps_elastic,
-        attn_lower_heads_limit=args.attn_lower_heads_limit,
-        sps_lower_filter_limit=args.sps_lower_filter_limit
-    )
+    print(f"Creating model: {args.model}...")
+    
+    # Check if model supports granularity
+    supports_granularity = args.model == 'spikformer'
+    
+    if args.model == 'spikformer':
+        # Full spikformer with all configurable arguments
+        model = create_model(
+            'spikformer',
+            pretrained=False,
+            patch_size=args.patch_size,
+            embed_dims=args.embed_dims,
+            num_heads=args.num_heads,
+            mlp_ratios=args.mlp_ratios,
+            in_channels=args.in_channels,
+            num_classes=args.num_classes,
+            depths=args.depths,
+            sr_ratios=args.sr_ratios,
+            sps_alpha=args.sps_alpha,
+            use_xisps=args.use_xisps,
+            xisps_elastic=args.xisps_elastic,
+            attn_lower_heads_limit=args.attn_lower_heads_limit,
+            sps_lower_filter_limit=args.sps_lower_filter_limit
+        )
+    elif args.model == 'spikformer_legacy':
+        # Legacy spikformer has hardcoded architecture
+        model = create_model(
+            'spikformer_legacy',
+            pretrained=False,
+            num_classes=args.num_classes,
+            in_channels=args.in_channels,
+            depths=args.depths,
+            embed_dims=args.embed_dims,
+        )
+    elif args.model == 'QKFormer':
+        # QKFormer has hardcoded architecture
+        model = create_model(
+            'QKFormer',
+            pretrained=False,
+            num_classes=args.num_classes,
+            in_channels=args.in_channels,
+            depths=args.depths,
+            embed_dims=args.embed_dims,
+        )
+    else:
+        raise ValueError(f"Unknown model: {args.model}")
 
     # 3. Load Checkpoint
     if os.path.exists(args.checkpoint):
@@ -145,6 +206,7 @@ if __name__ == "__main__":
 
     model.to(device)
     model.eval()
+    torchinfo.summary(model)
 
     # 4. Manual Hook Registration (The Fix)
     # We use this instead of OutputMonitor because OutputMonitor failed to find your layers
@@ -185,7 +247,10 @@ if __name__ == "__main__":
     for granularity in granularities:
         print(f"\n{'='*100}")
         print(f"{'='*100}")
-        print(f"GRANULARITY: {granularity}")
+        if granularity is not None:
+            print(f"GRANULARITY: {granularity}")
+        else:
+            print(f"MODEL: {args.model} (no granularity support)")
         print(f"{'='*100}")
         
         # Reset model state and counters
@@ -202,7 +267,10 @@ if __name__ == "__main__":
         # Run forward pass
         print(f"--- Running Forward Pass (T={T}) ---")
         with torch.no_grad():
-            model(x, granularity)
+            if granularity is not None:
+                model(x, granularity)
+            else:
+                model(x)
 
         # Analyze Results
         print(f"\n{'Layer Name':<50} | {'Output Shape':<32} | {'Spikes':<8} | {'Firing Rate':<12}")
@@ -217,12 +285,25 @@ if __name__ == "__main__":
         for name in ordered_layers:
             spikes = layer_outputs[name]
             n_spikes = spikes.sum().item()
-            if 'attn.k_lif' in name or 'attn.q_lif' in name or 'attn.v_lif' in name:
+            # Handle elastic attention heads (only for spikformer with granularity)
+            if granularity is not None and ('attn.k_lif' in name or 'attn.q_lif' in name or 'attn.v_lif' in name):
+                try:
+                    module = dict(model.named_modules())[name.replace('.k_lif', '') if 'k_lif' in name else name.replace('.q_lif', '') if 'q_lif' in name else name.replace('.v_lif', '')]
+                    if hasattr(module, 'current_num_heads') and hasattr(module, 'max_num_heads'):
+                        num_heads = module.current_num_heads
+                        max_heads = module.max_num_heads
+                        n_spikes *= (num_heads/max_heads)
+                except (KeyError, AttributeError):
+                    pass  # Skip adjustment if module not found or doesn't have these attributes
+            if granularity is not None and ('patch_embed.proj_lif' in name or 'patch_embed.proj_lif2' in name or 'patch_embed.proj_lif2' in name or 'patch_embed.proj_lif3' in name or 'patch_embed.rpe_lif' in name):
+                conv_granularity_filters = _generate_granularities_conv(
+                    args.sps_lower_filter_limit, 
+                    spikes.shape[2], 
+                    len(granularities)
+                )
                 # breakpoint()
-                module = dict(model.named_modules())[name.replace('.k_lif', '') if 'k_lif' in name else name.replace('.q_lif', '') if 'q_lif' in name else name.replace('.v_lif', '')]
-                num_heads = module.current_num_heads
-                max_heads = module.max_num_heads
-                n_spikes *= (num_heads/max_heads)
+                n_spikes *= (conv_granularity_filters[granularity[0]] / spikes.shape[2])
+                    
             if not ((spikes == 0.0) | (spikes == 1.0)).all():
                 print(f"  WARNING: {name} contains non-binary values. Min: {spikes.min():.4f}, Max: {spikes.max():.4f}")
             n_elements = spikes.numel() # Total possible spikes
@@ -240,8 +321,23 @@ if __name__ == "__main__":
 
         # Whole Model Stats
         model_rate = total_spikes_model / total_elements_model if total_elements_model > 0 else 0
-        print(f"{'WHOLE MODEL per T per N':<50} | {int(total_elements_model/T/N):<32} | {int(total_spikes_model/T/N):<8} | {model_rate:.4f}")
-        print(f"{'WHOLE MODEL PER N':<50} | {int(total_elements_model/N):<32} | {int(total_spikes_model/N):<8} | {model_rate:.4f}")
+        spikes_per_T_per_N = int(total_spikes_model/T/N)
+        spikes_per_N = int(total_spikes_model/N)
+        
+        print(f"{'WHOLE MODEL per T per N':<50} | {int(total_elements_model/T/N):<32} | {spikes_per_T_per_N:<8} | {model_rate:.4f}")
+        print(f"{'WHOLE MODEL PER N':<50} | {int(total_elements_model/N):<32} | {spikes_per_N:<8} | {model_rate:.4f}")
+        
+        # Energy estimation using Loihi (23.6 pJ per synaptic operation)
+        E_SOP_LOIHI = 23.6e-12  # Joules per synaptic operation
+        energy_per_T_per_N_J = spikes_per_T_per_N * E_SOP_LOIHI
+        energy_per_N_J = spikes_per_N * E_SOP_LOIHI
+        
+        # Convert to more readable units (nJ)
+        energy_per_T_per_N_nJ = energy_per_T_per_N_J * 1e9
+        energy_per_N_nJ = energy_per_N_J * 1e9
+        
+        print(f"{'ENERGY per T per N (Loihi estimate)':<50} | {'~23.6 pJ/SOP':<32} | {'':<8} | {energy_per_T_per_N_nJ:.2f} nJ")
+        print(f"{'ENERGY PER N (Loihi estimate)':<50} | {'~23.6 pJ/SOP':<32} | {'':<8} | {energy_per_N_nJ:.2f} nJ")
 
         # Store stats for plotting
         gran_key = str(granularity)
@@ -251,11 +347,24 @@ if __name__ == "__main__":
         for name in ordered_layers:
             spikes = layer_outputs[name]
             n_spikes = spikes.sum().item()
-            if 'attn.k_lif' in name or 'attn.q_lif' in name or 'attn.v_lif' in name:
-                module = dict(model.named_modules())[name.replace('.k_lif', '') if 'k_lif' in name else name.replace('.q_lif', '') if 'q_lif' in name else name.replace('.v_lif', '')]
-                num_heads = module.current_num_heads
-                max_heads = module.max_num_heads
-                n_spikes *= (num_heads/max_heads)
+            # Handle elastic attention heads (only for spikformer with granularity)
+            if granularity is not None and ('attn.k_lif' in name or 'attn.q_lif' in name or 'attn.v_lif' in name):
+                try:
+                    module = dict(model.named_modules())[name.replace('.k_lif', '') if 'k_lif' in name else name.replace('.q_lif', '') if 'q_lif' in name else name.replace('.v_lif', '')]
+                    if hasattr(module, 'current_num_heads') and hasattr(module, 'max_num_heads'):
+                        num_heads = module.current_num_heads
+                        max_heads = module.max_num_heads
+                        n_spikes *= (num_heads/max_heads)
+                except (KeyError, AttributeError):
+                    pass  # Skip adjustment if module not found or doesn't have these attributes
+            if granularity is not None and ('patch_embed.proj_lif' in name or 'patch_embed.proj_lif2' in name or 'patch_embed.proj_lif2' in name or 'patch_embed.proj_lif3' in name or 'patch_embed.rpe_lif' in name):
+                conv_granularity_filters = _generate_granularities_conv(
+                    args.sps_lower_filter_limit, 
+                    spikes.shape[2], 
+                    len(granularities)
+                )
+                # breakpoint()
+                n_spikes *= (conv_granularity_filters[granularity[0]] / spikes.shape[2])
             n_elements = spikes.numel()
             rate = n_spikes / n_elements if n_elements > 0 else 0
             spikes_per_granularity[gran_key][name] = n_spikes
@@ -268,8 +377,10 @@ if __name__ == "__main__":
         # Clear layer outputs to free memory
         layer_outputs.clear()
 
-        params = model.get_granularity_parameters(granularity)
-        print(f"\nGranularity Parameters: {params}")
+        # Print granularity parameters (only for elastic models)
+        if granularity is not None and hasattr(model, 'get_granularity_parameters'):
+            params = model.get_granularity_parameters(granularity)
+            print(f"\nGranularity Parameters: {params}")
     
     # Final cleanup
     functional.reset_net(model)
@@ -299,7 +410,7 @@ if __name__ == "__main__":
         short_names.append(short_name)
 
     colors = ["#1f7db4", "#4136d8", "#d01ad6", '#d62728']  # Blue, Orange, Green, Red
-    granularity_labels = [str(g) for g in granularities]
+    granularity_labels = [str(g) if g is not None else 'default' for g in granularities]
 
     # ---- Plot 1: Spikes per Layer ----
     fig1, ax1 = plt.subplots(figsize=(16, 8))

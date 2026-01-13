@@ -668,3 +668,15 @@ def main(args):
 if __name__ == "__main__":
     args = parse_args()
     main(args)
+
+
+# now, the code computes overall accuracy across 22 classes of the dataset. however, the classes represent 3 tasks: gesture type, speed (slow/normal/fast) and handed-ness (right/left). i want to compute, together with the overall accuracy that is being computed right now, the three accuracies for the three separate classes (that is, bin toghether some classes to perform classification in 5 classes for gesture, 3 classes for speed, and 2 classes for handed-ness). In particular, output classes are:
+
+# CLASS_ID_TO_NAME = {
+#     0: 'FTF_L', 1: 'FTF_R', 2: 'FTN_L', 3: 'FTN_R', 4: 'FTS_L', 5: 'FTS_R',
+#     6: 'NOSE_L', 7: 'NOSE_R', 8: 'OCF_L', 9: 'OCF_R', 10: 'OCN_L', 11: 'OCN_R',
+#     12: 'OCS_L', 13: 'OCS_R', 14: 'PSF_L', 15: 'PSF_R', 16: 'PSN_L', 17: 'PSN_R',
+#     18: 'PSS_L', 19: 'PSS_R', 20: 'TR_L', 21: 'TR_R'
+# }
+
+# in these, the suffix _R and _L represent handed-ness -> merge all classes with _R and all classes with _L and evaluate if the handed_ness prediction of the model is correct. In the same way, the last letter before suffix is S/N/F, which are slow/normal/fast execution speeds. compute another metric that merges classes for a given speed. finally, FT/NOSE/OC/PS and TR are gesture classes. as before, marginalize the ouptut in these 5 classes. CARE that NOSE and TR gestures are only computed at normal speed, so no N is added at the end

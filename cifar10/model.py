@@ -535,13 +535,13 @@ class SPS(nn.Module):
         self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         # ----------- Stage 3 ------------
-        self.proj_conv3 = nn.Conv2d(c3, c4, kernel_size=3, stride=1, padding=1, bias=False)
-        self.proj_bn3 = nn.BatchNorm2d(c4)
+        self.proj_conv3 = nn.Conv2d(c3, c_out, kernel_size=3, stride=1, padding=1, bias=False)
+        self.proj_bn3 = nn.BatchNorm2d(c_out)
         self.proj_lif3 = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
         self.maxpool3 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         # ----------- RPE stage ------------
-        self.rpe_conv = nn.Conv2d(c4, c_out, kernel_size=3, stride=1, padding=1, bias=False)
+        self.rpe_conv = nn.Conv2d(c_out, c_out, kernel_size=3, stride=1, padding=1, bias=False)
         self.rpe_bn = nn.BatchNorm2d(c_out)
         self.rpe_lif = MultiStepLIFNode(tau=2.0, detach_reset=True, backend="cupy")
 
@@ -826,6 +826,66 @@ class Spikformer(nn.Module):
         # classification head
         self.head = nn.Linear(embed_dims, num_classes) if num_classes > 0 else nn.Identity()
         self.apply(self._init_weights)
+        self.model_granularity_info = self.get_granularity_info()
+
+    def get_granularity_info(self):
+        fixed_params = {}
+        variable_info = {}
+        
+        # Collect patch_embed info
+        for name, module in self.patch_embed.named_modules():
+            key = f'patch_embed_{name}'
+            if isinstance(module, XiConvMultiGran):
+                variable_info[key] = module.get_granularity_info()
+            elif isinstance(module, XiConv):
+                fixed_params[key] = sum(p.numel() for p in module.parameters())
+            elif isinstance(module, nn.Conv2d) and not self.use_xisps:
+                fixed_params[key] = sum(p.numel() for p in module.parameters())
+        
+        # Collect block info
+        for b_id, b in enumerate(self.block):
+            variable_info[f'block_{b_id}_mlp'] = b.mlp.get_granularity_info()
+            variable_info[f'block_{b_id}_attn'] = b.attn.get_granularity_info()
+        
+        # Collect head info
+        fixed_params['head'] = sum(p.numel() for p in self.head.parameters())
+        
+        # Compute totals
+        total_fixed = sum(fixed_params.values())
+        var_min = sum(info['params'][0] for info in variable_info.values())
+        var_max = sum(info['params'][-1] for info in variable_info.values())
+        
+        # Print summary
+        print(f"\n{'='*60}")
+        print(f"FIXED PARAMETERS: {total_fixed:,}")
+        print(f"{'='*60}")
+        for name, count in fixed_params.items():
+            pct = 100 * count / total_fixed if total_fixed > 0 else 0
+            print(f"  {name:40s} {count:12,} ({pct:5.1f}%)")
+        
+        print(f"\n{'='*60}")
+        print(f"VARIABLE PARAMETERS: [{var_min:,}, {var_max:,}]")
+        print(f"{'='*60}")
+        for name, info in variable_info.items():
+            print(f"  {name:40s} [{info['params'][0]:,}, {info['params'][-1]:,}]")
+        
+        print(f"\n{'='*60}")
+        print(f"TOTAL MODEL SIZE:")
+        print(f"  Minimum: {total_fixed + var_min:,}")
+        print(f"  Maximum: {total_fixed + var_max:,}")
+        print(f"{'='*60}\n")
+        
+        return {
+            'fixed': fixed_params,
+            'variable': variable_info,
+            'totals': {
+                'fixed': total_fixed,
+                'variable_min': var_min,
+                'variable_max': var_max,
+                'model_min': total_fixed + var_min,
+                'model_max': total_fixed + var_max
+            }
+        }
 
     @torch.jit.ignore
     def _get_pos_embed(self, pos_embed, patch_embed, H, W):
@@ -857,6 +917,42 @@ class Spikformer(nn.Module):
         for blk in block:
             x = blk(x, granularity=granularity)
         return x.mean(2)
+
+    def get_granularity_parameters(self, granularity):
+        """
+        Get the number of parameters for a given granularity configuration.
+        
+        Args:
+            granularity: Either a single int (0-3) applied to all layers,
+                        or a list [feat_extractor_gran, attn_gran, mlp_gran]
+                        
+        Returns:
+            Total number of parameters at the given granularity
+        """
+        # Parse granularity input
+        if isinstance(granularity, (list, tuple)):
+            feat_gran = granularity[0]
+            attn_gran = granularity[1] if len(granularity) > 1 else granularity[0]
+            mlp_gran = granularity[2] if len(granularity) > 2 else granularity[0]
+        else:
+            feat_gran = attn_gran = mlp_gran = granularity
+        
+        # Get fixed parameters from cached info
+        total_fixed = self.model_granularity_info['totals']['fixed']
+        
+        # Calculate variable parameters based on granularity
+        variable_params = 0
+        
+        # Patch embed (feature extractor) - uses feat_gran
+        for name, info in self.model_granularity_info['variable'].items():
+            if 'patch_embed' in name:
+                variable_params += info['params'][feat_gran]
+            elif 'attn' in name:
+                variable_params += info['params'][attn_gran]
+            elif 'mlp' in name:
+                variable_params += info['params'][mlp_gran]
+        
+        return total_fixed + variable_params
     
     def sample_granularity(self, granularity):
         if granularity is None:

@@ -1,0 +1,253 @@
+Output directory: spike_analysis/xispikeformer_t16
+Log file: spike_analysis/xispikeformer_t16/analysis_log.txt
+Running analysis on: CUDA
+Model: spikformer
+Supports granularity: True
+Loading EHWGesture dataset...
+The directory [data/ehwgesture/frames_number_16_split_by_number] already exists.
+Dataset loaded: 9708 samples
+Creating model: spikformer...
+Using XiSPS v2: alpha =  2.0
+
+============================================================
+FIXED PARAMETERS: 413,270
+============================================================
+  patch_embed_proj_conv                          18,496 (  4.5%)
+  patch_embed_proj_conv1                         77,824 ( 18.8%)
+  patch_embed_proj_conv2                        311,296 ( 75.3%)
+  head                                            5,654 (  1.4%)
+
+============================================================
+VARIABLE PARAMETERS: [267,232, 2,173,824]
+============================================================
+  patch_embed_proj_conv3                   [40,960, 327,680]
+  patch_embed_rpe_conv                     [40,960, 327,680]
+  block_0_mlp                              [33,728, 528,128]
+  block_0_attn                             [58,928, 231,104]
+  block_1_mlp                              [33,728, 528,128]
+  block_1_attn                             [58,928, 231,104]
+
+============================================================
+TOTAL MODEL SIZE:
+  Minimum: 680,502
+  Maximum: 2,587,094
+============================================================
+
+Loading checkpoint from logs/final_xisps2a2_t16_h32_256_d2_lfl16/spikformer_b16_T16_Ttrain16_wd0.06_adamw_cnf_ADD/lr0.001/checkpoint_max_test_acc1.pth...
+Checkpoint loaded. <All keys matched successfully>
+======================================================================
+Layer (type:depth-idx)                        Param #
+======================================================================
+Spikformer                                    16,384
+├─XiSPSv2: 1-1                                --
+│    └─XiConv: 2-1                            --
+│    │    └─Conv2d: 3-1                       64
+│    │    └─Conv2d: 3-2                       18,432
+│    │    └─Identity: 3-3                     --
+│    └─BatchNorm2d: 2-2                       128
+│    └─MultiStepLIFNode: 2-3                  --
+│    │    └─Sigmoid: 3-4                      --
+│    └─MaxPool2d: 2-4                         --
+│    └─XiConv: 2-5                            --
+│    │    └─Conv2d: 3-5                       4,096
+│    │    └─Conv2d: 3-6                       73,728
+│    │    └─Identity: 3-7                     --
+│    └─BatchNorm2d: 2-6                       256
+│    └─MultiStepLIFNode: 2-7                  --
+│    │    └─Sigmoid: 3-8                      --
+│    └─MaxPool2d: 2-8                         --
+│    └─XiConv: 2-9                            --
+│    │    └─Conv2d: 3-9                       16,384
+│    │    └─Conv2d: 3-10                      294,912
+│    │    └─Identity: 3-11                    --
+│    └─BatchNorm2d: 2-10                      512
+│    └─MultiStepLIFNode: 2-11                 --
+│    │    └─Sigmoid: 3-12                     --
+│    └─MaxPool2d: 2-12                        --
+│    └─XiConvMultiGran: 2-13                  --
+│    │    └─Conv2d: 3-13                      32,768
+│    │    └─Conv2d: 3-14                      294,912
+│    └─BatchNorm2d: 2-14                      512
+│    └─MultiStepLIFNode: 2-15                 --
+│    │    └─Sigmoid: 3-15                     --
+│    └─MaxPool2d: 2-16                        --
+│    └─XiConvMultiGran: 2-17                  --
+│    │    └─Conv2d: 3-16                      32,768
+│    │    └─Conv2d: 3-17                      294,912
+│    └─BatchNorm2d: 2-18                      512
+│    └─MultiStepLIFNode: 2-19                 --
+│    │    └─Sigmoid: 3-18                     --
+├─ModuleList: 1-2                             --
+│    └─Block: 2-20                            --
+│    │    └─LayerNorm: 3-19                   512
+│    │    └─XiSSA: 3-20                       269,056
+│    │    └─Identity: 3-21                    --
+│    │    └─LayerNorm: 3-22                   512
+│    │    └─XiMLP: 3-23                       529,408
+│    └─Block: 2-21                            --
+│    │    └─LayerNorm: 3-24                   512
+│    │    └─XiSSA: 3-25                       269,056
+│    │    └─Identity: 3-26                    --
+│    │    └─LayerNorm: 3-27                   512
+│    │    └─XiMLP: 3-28                       529,408
+├─LayerNorm: 1-3                              512
+├─Linear: 1-4                                 5,654
+======================================================================
+Total params: 2,686,422
+Trainable params: 2,686,422
+Non-trainable params: 0
+======================================================================
+--- Registering Hooks ---
+Successfully identified 19 LIF layers.
+
+Loading a batch of real data...
+Input shape: torch.Size([16, 16, 2, 160, 160]), Labels: [20, 15, 18, 3, 7, 21, 14, 21, 20, 11, 3, 1, 16, 14, 16, 17]
+
+====================================================================================================
+====================================================================================================
+GRANULARITY: [0, 0, 0]
+====================================================================================================
+--- Running Forward Pass (T=16) ---
+
+Layer Name                                         | Output Shape                     | Spikes   | Firing Rate 
+----------------------------------------------------------------------------------------------------
+patch_embed.proj_lif                               | [16, 16, 64, 160, 160]           | 1437588  | 0.0034
+patch_embed.proj_lif1                              | [16, 16, 128, 80, 80]            | 1601283  | 0.0076
+patch_embed.proj_lif2                              | [16, 16, 256, 40, 40]            | 186747   | 0.0018
+patch_embed.proj_lif3                              | [16, 16, 256, 20, 20]            | 38638    | 0.0015
+patch_embed.rpe_lif                                | [16, 16, 256, 10, 10]            | 58604    | 0.0089
+block.0.attn.q_lif                                 | [16, 16, 256, 100]               | 114693   | 0.0175
+block.0.attn.k_lif                                 | [16, 16, 256, 100]               | 75156    | 0.0115
+block.0.attn.v_lif                                 | [16, 16, 256, 100]               | 54547    | 0.0083
+block.0.attn.attn_lif                              | [16, 16, 256, 100]               | 108706   | 0.0166
+block.0.attn.proj_lif                              | [16, 16, 256, 100]               | 614502   | 0.0938
+block.0.mlp.fc1_lif                                | [16, 16, 64, 100]                | 126072   | 0.0769
+block.0.mlp.fc2_lif                                | [16, 16, 256, 100]               | 873856   | 0.1333
+block.1.attn.q_lif                                 | [16, 16, 256, 100]               | 115816   | 0.0177
+block.1.attn.k_lif                                 | [16, 16, 256, 100]               | 78851    | 0.0120
+block.1.attn.v_lif                                 | [16, 16, 256, 100]               | 73000    | 0.0111
+block.1.attn.attn_lif                              | [16, 16, 256, 100]               | 65334    | 0.0100
+block.1.attn.proj_lif                              | [16, 16, 256, 100]               | 509953   | 0.0778
+block.1.mlp.fc1_lif                                | [16, 16, 64, 100]                | 343401   | 0.2096
+block.1.mlp.fc2_lif                                | [16, 16, 256, 100]               | 2327743  | 0.3552
+----------------------------------------------------------------------------------------------------
+WHOLE MODEL per T per N                            | 3315200                          | 34392    | 0.0104
+WHOLE MODEL PER N                                  | 53043200                         | 550280   | 0.0104
+ENERGY per T per N (Loihi estimate)                | ~23.6 pJ/SOP                     |          | 811.65 nJ
+ENERGY PER N (Loihi estimate)                      | ~23.6 pJ/SOP                     |          | 12986.61 nJ
+
+Granularity Parameters: 680502
+
+====================================================================================================
+====================================================================================================
+GRANULARITY: [1, 1, 1]
+====================================================================================================
+--- Running Forward Pass (T=16) ---
+
+Layer Name                                         | Output Shape                     | Spikes   | Firing Rate 
+----------------------------------------------------------------------------------------------------
+patch_embed.proj_lif                               | [16, 16, 64, 160, 160]           | 2156382  | 0.0051
+patch_embed.proj_lif1                              | [16, 16, 128, 80, 80]            | 3202566  | 0.0153
+patch_embed.proj_lif2                              | [16, 16, 256, 40, 40]            | 373495   | 0.0036
+patch_embed.proj_lif3                              | [16, 16, 256, 20, 20]            | 117210   | 0.0045
+patch_embed.rpe_lif                                | [16, 16, 256, 10, 10]            | 115017   | 0.0176
+block.0.attn.q_lif                                 | [16, 16, 256, 100]               | 299907   | 0.0458
+block.0.attn.k_lif                                 | [16, 16, 256, 100]               | 140728   | 0.0215
+block.0.attn.v_lif                                 | [16, 16, 256, 100]               | 126132   | 0.0192
+block.0.attn.attn_lif                              | [16, 16, 256, 100]               | 385273   | 0.0588
+block.0.attn.proj_lif                              | [16, 16, 256, 100]               | 691901   | 0.1056
+block.0.mlp.fc1_lif                                | [16, 16, 160, 100]               | 309515   | 0.0756
+block.0.mlp.fc2_lif                                | [16, 16, 256, 100]               | 609793   | 0.0930
+block.1.attn.q_lif                                 | [16, 16, 256, 100]               | 287061   | 0.0438
+block.1.attn.k_lif                                 | [16, 16, 256, 100]               | 151667   | 0.0231
+block.1.attn.v_lif                                 | [16, 16, 256, 100]               | 143844   | 0.0219
+block.1.attn.attn_lif                              | [16, 16, 256, 100]               | 209017   | 0.0319
+block.1.attn.proj_lif                              | [16, 16, 256, 100]               | 1189675  | 0.1815
+block.1.mlp.fc1_lif                                | [16, 16, 160, 100]               | 559650   | 0.1366
+block.1.mlp.fc2_lif                                | [16, 16, 256, 100]               | 1684963  | 0.2571
+----------------------------------------------------------------------------------------------------
+WHOLE MODEL per T per N                            | 3334400                          | 49819    | 0.0149
+WHOLE MODEL PER N                                  | 53350400                         | 797112   | 0.0149
+ENERGY per T per N (Loihi estimate)                | ~23.6 pJ/SOP                     |          | 1175.73 nJ
+ENERGY PER N (Loihi estimate)                      | ~23.6 pJ/SOP                     |          | 18811.84 nJ
+
+Granularity Parameters: 918694
+
+====================================================================================================
+====================================================================================================
+GRANULARITY: [2, 2, 2]
+====================================================================================================
+--- Running Forward Pass (T=16) ---
+
+Layer Name                                         | Output Shape                     | Spikes   | Firing Rate 
+----------------------------------------------------------------------------------------------------
+patch_embed.proj_lif                               | [16, 16, 64, 160, 160]           | 3593971  | 0.0086
+patch_embed.proj_lif1                              | [16, 16, 128, 80, 80]            | 6405133  | 0.0305
+patch_embed.proj_lif2                              | [16, 16, 256, 40, 40]            | 746990   | 0.0071
+patch_embed.proj_lif3                              | [16, 16, 256, 20, 20]            | 269158   | 0.0103
+patch_embed.rpe_lif                                | [16, 16, 256, 10, 10]            | 257163   | 0.0392
+block.0.attn.q_lif                                 | [16, 16, 256, 100]               | 664706   | 0.1014
+block.0.attn.k_lif                                 | [16, 16, 256, 100]               | 265848   | 0.0406
+block.0.attn.v_lif                                 | [16, 16, 256, 100]               | 237738   | 0.0363
+block.0.attn.attn_lif                              | [16, 16, 256, 100]               | 590529   | 0.0901
+block.0.attn.proj_lif                              | [16, 16, 256, 100]               | 766613   | 0.1170
+block.0.mlp.fc1_lif                                | [16, 16, 416, 100]               | 643820   | 0.0605
+block.0.mlp.fc2_lif                                | [16, 16, 256, 100]               | 483601   | 0.0738
+block.1.attn.q_lif                                 | [16, 16, 256, 100]               | 451612   | 0.0689
+block.1.attn.k_lif                                 | [16, 16, 256, 100]               | 278945   | 0.0426
+block.1.attn.v_lif                                 | [16, 16, 256, 100]               | 255010   | 0.0389
+block.1.attn.attn_lif                              | [16, 16, 256, 100]               | 275939   | 0.0421
+block.1.attn.proj_lif                              | [16, 16, 256, 100]               | 1084951  | 0.1656
+block.1.mlp.fc1_lif                                | [16, 16, 416, 100]               | 851667   | 0.0800
+block.1.mlp.fc2_lif                                | [16, 16, 256, 100]               | 837395   | 0.1278
+----------------------------------------------------------------------------------------------------
+WHOLE MODEL per T per N                            | 3385600                          | 74065    | 0.0219
+WHOLE MODEL PER N                                  | 54169600                         | 1185049  | 0.0219
+ENERGY per T per N (Loihi estimate)                | ~23.6 pJ/SOP                     |          | 1747.93 nJ
+ENERGY PER N (Loihi estimate)                      | ~23.6 pJ/SOP                     |          | 27967.16 nJ
+
+Granularity Parameters: 1460998
+
+====================================================================================================
+====================================================================================================
+GRANULARITY: [3, 3, 3]
+====================================================================================================
+--- Running Forward Pass (T=16) ---
+
+Layer Name                                         | Output Shape                     | Spikes   | Firing Rate 
+----------------------------------------------------------------------------------------------------
+patch_embed.proj_lif                               | [16, 16, 64, 160, 160]           | 5750354  | 0.0137
+patch_embed.proj_lif1                              | [16, 16, 128, 80, 80]            | 12810266 | 0.0611
+patch_embed.proj_lif2                              | [16, 16, 256, 40, 40]            | 1493980  | 0.0142
+patch_embed.proj_lif3                              | [16, 16, 256, 20, 20]            | 556992   | 0.0212
+patch_embed.rpe_lif                                | [16, 16, 256, 10, 10]            | 536756   | 0.0819
+block.0.attn.q_lif                                 | [16, 16, 256, 100]               | 1130040  | 0.1724
+block.0.attn.k_lif                                 | [16, 16, 256, 100]               | 376894   | 0.0575
+block.0.attn.v_lif                                 | [16, 16, 256, 100]               | 341193   | 0.0521
+block.0.attn.attn_lif                              | [16, 16, 256, 100]               | 673539   | 0.1028
+block.0.attn.proj_lif                              | [16, 16, 256, 100]               | 790055   | 0.1206
+block.0.mlp.fc1_lif                                | [16, 16, 1024, 100]              | 776316   | 0.0296
+block.0.mlp.fc2_lif                                | [16, 16, 256, 100]               | 488880   | 0.0746
+block.1.attn.q_lif                                 | [16, 16, 256, 100]               | 783461   | 0.1195
+block.1.attn.k_lif                                 | [16, 16, 256, 100]               | 378070   | 0.0577
+block.1.attn.v_lif                                 | [16, 16, 256, 100]               | 351591   | 0.0536
+block.1.attn.attn_lif                              | [16, 16, 256, 100]               | 316366   | 0.0483
+block.1.attn.proj_lif                              | [16, 16, 256, 100]               | 1021863  | 0.1559
+block.1.mlp.fc1_lif                                | [16, 16, 1024, 100]              | 1085237  | 0.0414
+block.1.mlp.fc2_lif                                | [16, 16, 256, 100]               | 741317   | 0.1131
+----------------------------------------------------------------------------------------------------
+WHOLE MODEL per T per N                            | 3507200                          | 118762   | 0.0339
+WHOLE MODEL PER N                                  | 56115200                         | 1900198  | 0.0339
+ENERGY per T per N (Loihi estimate)                | ~23.6 pJ/SOP                     |          | 2802.78 nJ
+ENERGY PER N (Loihi estimate)                      | ~23.6 pJ/SOP                     |          | 44844.67 nJ
+
+Granularity Parameters: 2587094
+
+====================================================================================================
+Generating Bar Plots...
+====================================================================================================
+Saved: spike_analysis/xispikeformer_t16/spikes_per_layer.png
+Saved: spike_analysis/xispikeformer_t16/firing_rate_per_layer.png
+
+Plotting complete!
+All outputs saved to: spike_analysis/xispikeformer_t16

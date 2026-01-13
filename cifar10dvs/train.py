@@ -713,25 +713,35 @@ def main(args):
             checkpoint,
             os.path.join(output_dir, f'checkpoint_{epoch}.pth'))
     
-    # Run full evaluation with all granularity combinations
-    print("\n\nRunning full granularity evaluation...")
-    full_results, best_gran, best_metrics = full_evaluate(
-        model, criterion, data_loader_test, device=device)
-    
-    # Log full evaluation results to wandb
-    if args.log_wandb and utils.is_main_process():
-        # Log best configuration
-        wandb.run.summary["best_full_eval_granularity"] = f"F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}"
-        wandb.run.summary["best_full_eval_acc1"] = best_metrics['acc1']
-        wandb.run.summary["best_full_eval_acc5"] = best_metrics['acc5']
-        wandb.run.summary["best_full_eval_loss"] = best_metrics['loss']
-        
-        # Create a table with all results
-        full_eval_table = wandb.Table(columns=["Feat_Gran", "Attn_Gran", "MLP_Gran", "Acc@1", "Acc@5", "Loss"])
-        for gran, metrics in full_results.items():
-            full_eval_table.add_data(gran[0], gran[1], gran[2], 
-                                    metrics['acc1'], metrics['acc5'], metrics['loss'])
-        wandb.log({"full_evaluation_results": full_eval_table})
+    # Run full evaluation with all granularity combinations using the BEST model
+    if output_dir and utils.is_main_process():
+        best_checkpoint_path = os.path.join(output_dir, 'checkpoint_max_test_acc1.pth')
+        if os.path.exists(best_checkpoint_path):
+            print(f"\n\nLoading best model from {best_checkpoint_path} for full evaluation...")
+            best_checkpoint = torch.load(best_checkpoint_path, map_location='cpu')
+            model.load_state_dict(best_checkpoint['model'])
+            model.to(device)
+            
+            print("Running full granularity evaluation on BEST model...")
+            full_results, best_gran, best_metrics = full_evaluate(
+                model, criterion, data_loader_test, device=device)
+            
+            # Log full evaluation results to wandb
+            if args.log_wandb:
+                # Log best configuration
+                wandb.run.summary["best_full_eval_granularity"] = f"F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}"
+                wandb.run.summary["best_full_eval_acc1"] = best_metrics['acc1']
+                wandb.run.summary["best_full_eval_acc5"] = best_metrics['acc5']
+                wandb.run.summary["best_full_eval_loss"] = best_metrics['loss']
+                
+                # Create a table with all results
+                full_eval_table = wandb.Table(columns=["Feat_Gran", "Attn_Gran", "MLP_Gran", "Acc@1", "Acc@5", "Loss", "Parameters"])
+                for gran, metrics in full_results.items():
+                    full_eval_table.add_data(gran[0], gran[1], gran[2], 
+                                            metrics['acc1'], metrics['acc5'], metrics['loss'], str(metrics['parameters']))
+                wandb.log({"full_evaluation_results": full_eval_table})
+        else:
+            print(f"Best model checkpoint not found at {best_checkpoint_path}, skipping full evaluation.")
     
     # Finish wandb run
     if args.log_wandb and utils.is_main_process():

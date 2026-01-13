@@ -317,6 +317,113 @@ parser.add_argument('--wandb-run-name', type=str, default=None,
                     help='wandb run name (default: auto-generated based on config)')
 
 
+def full_evaluate(model, loader, loss_fn, args, amp_autocast=suppress):
+    """
+    Evaluate all combinations of granularity settings:
+    granularity = [feat_extractor_gran, attn_gran, mlp_gran]
+    Each can be 0, 1, 2, or 3 (4^3 = 64 combinations)
+    """
+    model.eval()
+    print("\n" + "="*80)
+    print("FULL GRANULARITY EVALUATION - Testing all 64 combinations")
+    print("="*80)
+    
+    results = {}
+    
+    with torch.no_grad():
+        for g_feat in range(4):
+            for g_attn in range(4):
+                for g_mlp in range(4):
+                    granularity = [g_feat, g_attn, g_mlp]
+                    
+                    batch_time_m = AverageMeter()
+                    losses_m = AverageMeter()
+                    top1_m = AverageMeter()
+                    top5_m = AverageMeter()
+                    
+                    end = time.time()
+                    
+                    for batch_idx, (input, target) in enumerate(loader):
+                        if not args.prefetcher:
+                            input = input.cuda()
+                            target = target.cuda()
+                        if args.channels_last:
+                            input = input.contiguous(memory_format=torch.channels_last)
+
+                        with amp_autocast():
+                            output = model(input, granularity=granularity)
+                        
+                        if isinstance(output, (tuple, list)):
+                            output = output[0]
+
+                        loss = loss_fn(output, target)
+                        functional.reset_net(model)
+
+                        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+
+                        if args.distributed:
+                            reduced_loss = reduce_tensor(loss.data, args.world_size)
+                            acc1 = reduce_tensor(acc1, args.world_size)
+                            acc5 = reduce_tensor(acc5, args.world_size)
+                        else:
+                            reduced_loss = loss.data
+
+                        torch.cuda.synchronize()
+
+                        losses_m.update(reduced_loss.item(), input.size(0))
+                        top1_m.update(acc1.item(), output.size(0))
+                        top5_m.update(acc5.item(), output.size(0))
+
+                        batch_time_m.update(time.time() - end)
+                        end = time.time()
+                    
+                    # Try to get parameters for this granularity if the method exists
+                    try:
+                        parameters = model.get_granularity_parameters(granularity)
+                    except AttributeError:
+                        parameters = "N/A"
+                    
+                    results[tuple(granularity)] = {
+                        'loss': losses_m.avg,
+                        'acc1': top1_m.avg,
+                        'acc5': top5_m.avg,
+                        'parameters': parameters
+                    }
+                    
+                    if args.local_rank == 0:
+                        _logger.info(f'[F:{g_feat}, A:{g_attn}, M:{g_mlp}] - Acc@1: {top1_m.avg:.2f}%, Acc@5: {top5_m.avg:.2f}%, Loss: {losses_m.avg:.4f}')
+    
+    # Print summary
+    if args.local_rank == 0:
+        print("\n" + "="*80)
+        print("SUMMARY - Top 10 Configurations by Acc@1")
+        print("="*80)
+        sorted_results = sorted(results.items(), key=lambda x: x[1]['acc1'], reverse=True)
+        for i, (gran, metrics) in enumerate(sorted_results[:10]):
+            print(f"{i+1:2d}. [F:{gran[0]}, A:{gran[1]}, M:{gran[2]}] - Acc@1: {metrics['acc1']:.2f}%, Acc@5: {metrics['acc5']:.2f}%, Loss: {metrics['loss']:.4f}")
+            print(f"    Granularity Parameters: {metrics['parameters']}")
+        
+        print("\n" + "="*80)
+        print("Bottom 10 Configurations by Acc@1")
+        print("="*80)
+        for i, (gran, metrics) in enumerate(sorted_results[-10:]):
+            print(f"{i+1:2d}. [F:{gran[0]}, A:{gran[1]}, M:{gran[2]}] - Acc@1: {metrics['acc1']:.2f}%, Acc@5: {metrics['acc5']:.2f}%, Loss: {metrics['loss']:.4f}")
+            print(f"    Granularity Parameters: {metrics['parameters']}")
+        
+        # Find best configuration
+        best_gran, best_metrics = sorted_results[0]
+        print("\n" + "="*80)
+        print(f"BEST CONFIGURATION: [F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}]")
+        print(f"Acc@1: {best_metrics['acc1']:.2f}%, Acc@5: {best_metrics['acc5']:.2f}%, Loss: {best_metrics['loss']:.4f}")
+        print(f"    Granularity Parameters: {best_metrics['parameters']}")
+        print("="*80 + "\n")
+    
+    sorted_results = sorted(results.items(), key=lambda x: x[1]['acc1'], reverse=True)
+    best_gran, best_metrics = sorted_results[0]
+    
+    return results, best_gran, best_metrics
+
+
 def _parse_args():
     # Do we have a config file to parse?
     args_config, remaining = config_parser.parse_known_args()
@@ -686,6 +793,38 @@ def main():
         pass
     if best_metric is not None:
         _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
+
+    # Run full evaluation with all granularity combinations using the BEST model
+    if output_dir is not None and args.rank == 0:
+        best_checkpoint_path = os.path.join(output_dir, 'model_best.pth.tar')
+        if os.path.exists(best_checkpoint_path):
+            _logger.info(f'\nLoading best model from {best_checkpoint_path} for full evaluation...')
+            load_checkpoint(model, best_checkpoint_path)
+            
+            _logger.info("\n\nRunning full granularity evaluation on BEST model...")
+            full_results, best_gran, best_metrics = full_evaluate(
+                model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+            
+            # Log full evaluation results to wandb
+            if args.log_wandb and has_wandb:
+                # Log best configuration
+                wandb.run.summary["best_full_eval_granularity"] = f"F:{best_gran[0]}, A:{best_gran[1]}, M:{best_gran[2]}"
+                wandb.run.summary["best_full_eval_acc1"] = best_metrics['acc1']
+                wandb.run.summary["best_full_eval_acc5"] = best_metrics['acc5']
+                wandb.run.summary["best_full_eval_loss"] = best_metrics['loss']
+                
+                # Create a table with all results
+                full_eval_table = wandb.Table(columns=["Feat_Gran", "Attn_Gran", "MLP_Gran", "Acc@1", "Acc@5", "Loss", "Parameters"])
+                for gran, metrics in full_results.items():
+                    full_eval_table.add_data(gran[0], gran[1], gran[2], 
+                                            metrics['acc1'], metrics['acc5'], metrics['loss'], str(metrics['parameters']))
+                wandb.log({"full_evaluation_results": full_eval_table})
+        else:
+            _logger.warning(f'Best model checkpoint not found at {best_checkpoint_path}, skipping full evaluation.')
+
+    # Finish wandb run
+    if args.log_wandb and has_wandb:
+        wandb.finish()
 
 
 def train_one_epoch(

@@ -571,6 +571,8 @@ def main(args):
         model = create_model(
             'spikformer_legacy',
             pretrained=False,
+            embed_dims=args.embed_dims,
+            depths=args.depths,
             num_classes=args.num_classes,
             in_channels=args.in_channels,
             drop_rate=args.drop_rate,
@@ -582,6 +584,8 @@ def main(args):
             'QKFormer',
             pretrained=False,
             num_classes=args.num_classes,
+            embed_dims=args.embed_dims,
+            depths=args.depths,
             in_channels=args.in_channels,
             drop_rate=args.drop_rate,
             drop_path_rate=args.drop_path_rate,

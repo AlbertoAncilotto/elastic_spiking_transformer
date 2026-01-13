@@ -150,35 +150,39 @@ class SPS(nn.Module):
         x = self.proj_bn(x).reshape(T,B,-1,H,W).contiguous()
         x = self.proj_lif(x).flatten(0,1).contiguous()
         x = self.maxpool(x)
+        H1, W1 = H // 2, W // 2
 
         x = self.proj_conv1(x)
-        x = self.proj_bn1(x).reshape(T, B, -1, 64, 64).contiguous()
+        x = self.proj_bn1(x).reshape(T, B, -1, H1, W1).contiguous()
         x = self.proj_lif1(x).flatten(0, 1).contiguous()
         x = self.maxpool1(x)
+        H2, W2 = H1 // 2, W1 // 2
 
         x = self.proj_conv2(x)
-        x = self.proj_bn2(x).reshape(T, B, -1, 32, 32).contiguous()
+        x = self.proj_bn2(x).reshape(T, B, -1, H2, W2).contiguous()
         x = self.proj_lif2(x).flatten(0, 1).contiguous()
         x = self.maxpool2(x)
+        H3, W3 = H2 // 2, W2 // 2
 
         x = self.proj_conv3(x)
-        x = self.proj_bn3(x).reshape(T, B, -1, 16, 16).contiguous()
+        x = self.proj_bn3(x).reshape(T, B, -1, H3, W3).contiguous()
         x = self.proj_lif3(x).flatten(0, 1).contiguous()
         x = self.maxpool3(x)
+        H4, W4 = H3 // 2, W3 // 2
 
-        x_rpe = self.rpe_bn(self.rpe_conv(x)).reshape(T,B,-1,H//16,W//16).contiguous()
+        x_rpe = self.rpe_bn(self.rpe_conv(x)).reshape(T,B,-1,H4,W4).contiguous()
         x_rpe = self.rpe_lif(x_rpe).flatten(0,1)
         x = x + x_rpe
-        x = x.reshape(T, B, -1, (H//16)*(H//16)).contiguous()
+        x = x.reshape(T, B, -1, H4 * W4).contiguous()
 
         return x
 
 class Spikformer(nn.Module):
     def __init__(self,
                  img_size_h=128, img_size_w=128, patch_size=16, in_channels=2, num_classes=11,
-                 embed_dims=[64, 128, 256], num_heads=[1, 2, 4], mlp_ratios=[4, 4, 4], qkv_bias=False, qk_scale=None,
+                 embed_dims=256, num_heads=16, mlp_ratios=4, qkv_bias=False, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
-                 depths=[6, 8, 6], sr_ratios=[8, 4, 2]
+                 depths=4, sr_ratios=1
                  ):
         super().__init__()
         self.num_classes = num_classes
@@ -248,9 +252,9 @@ class Spikformer(nn.Module):
 @register_model
 def spikformer_legacy(pretrained=False, **kwargs):
     model = Spikformer(
-        patch_size=16, embed_dims=256, num_heads=16, mlp_ratios=4,
-        in_channels=2, num_classes=10, qkv_bias=False,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=2, sr_ratios=1,
+        patch_size=16, num_heads=16, mlp_ratios=4,
+        qkv_bias=False,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), sr_ratios=1,
         **kwargs
     )
     model.default_cfg = _cfg()

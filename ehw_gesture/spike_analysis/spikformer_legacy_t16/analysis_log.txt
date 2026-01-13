@@ -1,0 +1,107 @@
+Output directory: spike_analysis/spikformer_legacy_t16
+Log file: spike_analysis/spikformer_legacy_t16/analysis_log.txt
+Running analysis on: CUDA
+Model: spikformer_legacy
+Supports granularity: False
+Loading EHWGesture dataset...
+The directory [data/ehwgesture/frames_number_16_split_by_number] already exists.
+Dataset loaded: 9708 samples
+Creating model: spikformer_legacy...
+Loading checkpoint from logs/spikformer_legacy_t16/spikformer_legacy_b16_T16_Ttrain16_wd0.06_adamw_cnf_ADD/lr0.001/checkpoint_max_test_acc1.pth...
+Checkpoint loaded. <All keys matched successfully>
+======================================================================
+Layer (type:depth-idx)                        Param #
+======================================================================
+Spikformer                                    16,384
+├─SPS: 1-1                                    --
+│    └─Conv2d: 2-1                            576
+│    └─BatchNorm2d: 2-2                       64
+│    └─MultiStepLIFNode: 2-3                  --
+│    │    └─Sigmoid: 3-1                      --
+│    └─MaxPool2d: 2-4                         --
+│    └─Conv2d: 2-5                            18,432
+│    └─BatchNorm2d: 2-6                       128
+│    └─MultiStepLIFNode: 2-7                  --
+│    │    └─Sigmoid: 3-2                      --
+│    └─MaxPool2d: 2-8                         --
+│    └─Conv2d: 2-9                            73,728
+│    └─BatchNorm2d: 2-10                      256
+│    └─MultiStepLIFNode: 2-11                 --
+│    │    └─Sigmoid: 3-3                      --
+│    └─MaxPool2d: 2-12                        --
+│    └─Conv2d: 2-13                           294,912
+│    └─BatchNorm2d: 2-14                      512
+│    └─MultiStepLIFNode: 2-15                 --
+│    │    └─Sigmoid: 3-4                      --
+│    └─MaxPool2d: 2-16                        --
+│    └─Conv2d: 2-17                           589,824
+│    └─BatchNorm2d: 2-18                      512
+│    └─MultiStepLIFNode: 2-19                 --
+│    │    └─Sigmoid: 3-5                      --
+├─ModuleList: 1-2                             --
+│    └─Block: 2-20                            --
+│    │    └─LayerNorm: 3-6                    512
+│    │    └─SSA: 3-7                          264,448
+│    │    └─Identity: 3-8                     --
+│    │    └─LayerNorm: 3-9                    512
+│    │    └─MLP: 3-10                         528,128
+│    └─Block: 2-21                            --
+│    │    └─LayerNorm: 3-11                   512
+│    │    └─SSA: 3-12                         264,448
+│    │    └─Identity: 3-13                    --
+│    │    └─LayerNorm: 3-14                   512
+│    │    └─MLP: 3-15                         528,128
+├─LayerNorm: 1-3                              512
+├─Linear: 1-4                                 5,654
+======================================================================
+Total params: 2,588,694
+Trainable params: 2,588,694
+Non-trainable params: 0
+======================================================================
+--- Registering Hooks ---
+Successfully identified 21 LIF layers.
+
+Loading a batch of real data...
+Input shape: torch.Size([16, 16, 2, 160, 160]), Labels: [18, 3, 13, 7, 15, 18, 11, 16, 13, 6, 15, 17, 18, 2, 15, 20]
+
+====================================================================================================
+====================================================================================================
+MODEL: spikformer_legacy (no granularity support)
+====================================================================================================
+--- Running Forward Pass (T=16) ---
+
+Layer Name                                         | Output Shape                     | Spikes   | Firing Rate 
+----------------------------------------------------------------------------------------------------
+patch_embed.proj_lif                               | [16, 16, 32, 160, 160]           | 20330764 | 0.0969
+patch_embed.proj_lif1                              | [16, 16, 64, 80, 80]             | 2162209  | 0.0206
+patch_embed.proj_lif2                              | [16, 16, 128, 40, 40]            | 1435054  | 0.0274
+patch_embed.proj_lif3                              | [16, 16, 256, 20, 20]            | 313500   | 0.0120
+patch_embed.rpe_lif                                | [16, 16, 256, 10, 10]            | 532170   | 0.0812
+block.0.attn.q_lif                                 | [16, 16, 256, 100]               | 1433083  | 0.2187
+block.0.attn.k_lif                                 | [16, 16, 256, 100]               | 403296   | 0.0615
+block.0.attn.v_lif                                 | [16, 16, 256, 100]               | 507128   | 0.0774
+block.0.attn.attn_lif                              | [16, 16, 256, 100]               | 1503641  | 0.2294
+block.0.attn.proj_lif                              | [16, 16, 256, 100]               | 728190   | 0.1111
+block.0.mlp.fc1_lif                                | [16, 16, 1024, 100]              | 1904991  | 0.0727
+block.0.mlp.fc2_lif                                | [16, 16, 256, 100]               | 482791   | 0.0737
+block.1.attn.q_lif                                 | [16, 16, 256, 100]               | 1666759  | 0.2543
+block.1.attn.k_lif                                 | [16, 16, 256, 100]               | 517800   | 0.0790
+block.1.attn.v_lif                                 | [16, 16, 256, 100]               | 701322   | 0.1070
+block.1.attn.attn_lif                              | [16, 16, 256, 100]               | 923746   | 0.1410
+block.1.attn.proj_lif                              | [16, 16, 256, 100]               | 1502543  | 0.2293
+block.1.mlp.fc1_lif                                | [16, 16, 1024, 100]              | 2497121  | 0.0953
+block.1.mlp.fc2_lif                                | [16, 16, 256, 100]               | 538360   | 0.0821
+----------------------------------------------------------------------------------------------------
+WHOLE MODEL per T per N                            | 2073600                          | 156579   | 0.0755
+WHOLE MODEL PER N                                  | 33177600                         | 2505279  | 0.0755
+ENERGY per T per N (Loihi estimate)                | ~23.6 pJ/SOP                     |          | 3695.26 nJ
+ENERGY PER N (Loihi estimate)                      | ~23.6 pJ/SOP                     |          | 59124.58 nJ
+
+====================================================================================================
+Generating Bar Plots...
+====================================================================================================
+Saved: spike_analysis/spikformer_legacy_t16/spikes_per_layer.png
+Saved: spike_analysis/spikformer_legacy_t16/firing_rate_per_layer.png
+
+Plotting complete!
+All outputs saved to: spike_analysis/spikformer_legacy_t16

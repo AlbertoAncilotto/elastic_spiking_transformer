@@ -1,0 +1,116 @@
+Output directory: spike_analysis/qkformer_t16
+Log file: spike_analysis/qkformer_t16/analysis_log.txt
+Running analysis on: CUDA
+Model: QKFormer
+Supports granularity: False
+Loading EHWGesture dataset...
+The directory [data/ehwgesture/frames_number_16_split_by_number] already exists.
+Dataset loaded: 9708 samples
+Creating model: QKFormer...
+Loading checkpoint from logs/qkformer_t16/QKFormer_b16_T16_Ttrain16_wd0.06_adamw_cnf_ADD/lr0.001/checkpoint_max_test_acc1.pth...
+Checkpoint loaded. <All keys matched successfully>
+======================================================================
+Layer (type:depth-idx)                        Param #
+======================================================================
+vit_snn                                       --
+├─PatchEmbedInit: 1-1                         --
+│    └─Conv2d: 2-1                            288
+│    └─BatchNorm2d: 2-2                       32
+│    └─MultiStepLIFNode: 2-3                  --
+│    │    └─Sigmoid: 3-1                      --
+│    └─Conv2d: 2-4                            4,608
+│    └─BatchNorm2d: 2-5                       64
+│    └─MaxPool2d: 2-6                         --
+│    └─MultiStepLIFNode: 2-7                  --
+│    │    └─Sigmoid: 3-2                      --
+│    └─Conv2d: 2-8                            18,432
+│    └─BatchNorm2d: 2-9                       128
+│    └─MaxPool2d: 2-10                        --
+│    └─MultiStepLIFNode: 2-11                 --
+│    │    └─Sigmoid: 3-3                      --
+│    └─Conv2d: 2-12                           73,728
+│    └─BatchNorm2d: 2-13                      256
+│    └─MaxPool2d: 2-14                        --
+│    └─MultiStepLIFNode: 2-15                 --
+│    │    └─Sigmoid: 3-4                      --
+│    └─Conv2d: 2-16                           4,096
+│    └─BatchNorm2d: 2-17                      256
+│    └─MultiStepLIFNode: 2-18                 --
+│    │    └─Sigmoid: 3-5                      --
+├─ModuleList: 1-2                             --
+│    └─TokenSpikingTransformer: 2-19          --
+│    │    └─Token_QK_Attention: 3-6           50,048
+│    │    └─MLP: 3-7                          33,536
+├─PatchEmbeddingStage: 1-3                    --
+│    └─Conv2d: 2-20                           294,912
+│    └─BatchNorm2d: 2-21                      512
+│    └─MultiStepLIFNode: 2-22                 --
+│    │    └─Sigmoid: 3-8                      --
+│    └─Conv2d: 2-23                           589,824
+│    └─BatchNorm2d: 2-24                      512
+│    └─MaxPool2d: 2-25                        --
+│    └─MultiStepLIFNode: 2-26                 --
+│    │    └─Sigmoid: 3-9                      --
+│    └─Conv2d: 2-27                           32,768
+│    └─BatchNorm2d: 2-28                      512
+│    └─MultiStepLIFNode: 2-29                 --
+│    │    └─Sigmoid: 3-10                     --
+├─ModuleList: 1-4                             --
+│    └─SpikingTransformer: 2-30               --
+│    │    └─Spiking_Self_Attention: 3-11      264,448
+│    │    └─MLP: 3-12                         132,608
+├─Linear: 1-5                                 5,654
+======================================================================
+Total params: 1,507,222
+Trainable params: 1,507,222
+Non-trainable params: 0
+======================================================================
+--- Registering Hooks ---
+Successfully identified 21 LIF layers.
+
+Loading a batch of real data...
+Input shape: torch.Size([16, 16, 2, 160, 160]), Labels: [4, 10, 6, 21, 9, 7, 17, 19, 20, 2, 12, 6, 7, 5, 17, 4]
+
+====================================================================================================
+====================================================================================================
+MODEL: QKFormer (no granularity support)
+====================================================================================================
+--- Running Forward Pass (T=16) ---
+
+Layer Name                                         | Output Shape                     | Spikes   | Firing Rate 
+----------------------------------------------------------------------------------------------------
+patch_embed1.proj_lif                              | [16, 16, 16, 160, 160]           | 20691072 | 0.1973
+patch_embed1.proj1_lif                             | [16, 16, 32, 80, 80]             | 6360026  | 0.1213
+patch_embed1.proj2_lif                             | [16, 16, 64, 40, 40]             | 2398788  | 0.0915
+patch_embed1.proj3_lif                             | [16, 16, 128, 20, 20]            | 1787869  | 0.1364
+patch_embed1.proj_res_lif                          | [16, 16, 128, 20, 20]            | 976155   | 0.0745
+stage1.0.tssa.q_lif                                | [16, 16, 128, 400]               | 874775   | 0.0667
+stage1.0.tssa.k_lif                                | [16, 16, 128, 400]               | 968045   | 0.0739
+stage1.0.tssa.attn_lif                             | [16, 16, 16, 1, 400]             | 326234   | 0.1991
+stage1.0.tssa.proj_lif                             | [16, 16, 128, 20, 20]            | 2056626  | 0.1569
+stage1.0.mlp.mlp1_lif                              | [16, 16, 128, 20, 20]            | 1082796  | 0.0826
+stage1.0.mlp.mlp2_lif                              | [16, 16, 128, 20, 20]            | 1970639  | 0.1503
+patch_embed2.proj_lif                              | [16, 16, 256, 20, 20]            | 1119502  | 0.0427
+patch_embed2.proj4_lif                             | [16, 16, 256, 10, 10]            | 655743   | 0.1001
+patch_embed2.proj_res_lif                          | [16, 16, 256, 10, 10]            | 85532    | 0.0131
+stage2.0.ssa.q_lif                                 | [16, 16, 256, 100]               | 2289000  | 0.3493
+stage2.0.ssa.k_lif                                 | [16, 16, 256, 100]               | 669412   | 0.1021
+stage2.0.ssa.v_lif                                 | [16, 16, 256, 100]               | 528009   | 0.0806
+stage2.0.ssa.attn_lif                              | [16, 16, 256, 100]               | 1526170  | 0.2329
+stage2.0.ssa.proj_lif                              | [256, 256, 100]                  | 1235969  | 0.1886
+stage2.0.mlp.mlp1_lif                              | [16, 16, 256, 10, 10]            | 933543   | 0.1424
+stage2.0.mlp.mlp2_lif                              | [16, 16, 256, 10, 10]            | 1368302  | 0.2088
+----------------------------------------------------------------------------------------------------
+WHOLE MODEL per T per N                            | 1414400                          | 194938   | 0.1378
+WHOLE MODEL PER N                                  | 22630400                         | 3119012  | 0.1378
+ENERGY per T per N (Loihi estimate)                | ~23.6 pJ/SOP                     |          | 4600.54 nJ
+ENERGY PER N (Loihi estimate)                      | ~23.6 pJ/SOP                     |          | 73608.68 nJ
+
+====================================================================================================
+Generating Bar Plots...
+====================================================================================================
+Saved: spike_analysis/qkformer_t16/spikes_per_layer.png
+Saved: spike_analysis/qkformer_t16/firing_rate_per_layer.png
+
+Plotting complete!
+All outputs saved to: spike_analysis/qkformer_t16
