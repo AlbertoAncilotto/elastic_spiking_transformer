@@ -50,7 +50,7 @@ class SpikeCounter:
                 
                 # Calculate number of output units per sample (all dims except T and B)
                 # For example, [T, B, C, N] -> C * N units per sample
-                breakpoint()
+                # breakpoint()
                 units_per_sample = output[0, 0].numel() if B > 0 else output[0].numel()
                 
                 # Sum over all dimensions except T and B to get spikes per sample
@@ -71,7 +71,7 @@ class SpikeCounter:
                 total_spikes = spike_count_per_t.sum().item()
                 self.spike_counts_per_layer.append(total_spikes)
                 
-                breakpoint()
+                # breakpoint()
                 # Store output units
                 self.output_units_per_layer.append(units_per_sample)
                 
@@ -498,6 +498,11 @@ def parse_args():
     parser.add_argument('--sps-alpha', type=float, default=1.0, help='SPS alpha')
     parser.add_argument('--use-xisps', action='store_true', default=False)
     parser.add_argument('--xisps-elastic', action='store_true', default=False)
+    parser.add_argument('--attn-lower-heads-limit', type=int, default=2,
+                        help='minimum number of attention heads in granularities (default: 2)')
+    parser.add_argument('--sps-lower-filter-limit', type=int, default=4,
+                        help='minimum number of filters in SPS granularities (default: 4)')
+    
     
     # Analysis args
     parser.add_argument('--checkpoint', required=True, help='path to checkpoint')
@@ -549,6 +554,9 @@ def main(args):
         sps_alpha=args.sps_alpha,
         use_xisps=args.use_xisps,
         xisps_elastic=args.xisps_elastic,
+        attn_lower_heads_limit=args.attn_lower_heads_limit,
+        sps_lower_filter_limit=args.sps_lower_filter_limit,
+
     )
     
     # Load checkpoint

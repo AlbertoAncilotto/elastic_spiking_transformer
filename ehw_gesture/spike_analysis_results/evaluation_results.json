@@ -1,0 +1,232 @@
+{
+  "loss": 2.808649745622748,
+  "acc1": 19.222819345260564,
+  "acc5": 68.62339809838777,
+  "timestep_spikes": [
+    31436.177734375,
+    84856.984375,
+    80741.9765625,
+    91097.6328125,
+    84536.8984375,
+    96685.5546875,
+    97167.34375,
+    113414.4453125
+  ],
+  "layer_statistics": {
+    "patch_embed.proj_lif": {
+      "total_spikes": 182748.55982730264,
+      "output_units": 1638400.0,
+      "total_possible_spikes": 13107200.0,
+      "sparsity": 0.9860573913705976,
+      "firing_rate": 0.01394260862940236,
+      "mean_per_timestep": 22843.56996556332,
+      "std_per_timestep": 11221.938627544203,
+      "min_per_timestep": 13774.238075657895,
+      "max_per_timestep": 46399.03605571546
+    },
+    "patch_embed.proj_lif1": {
+      "total_spikes": 215278.05571546053,
+      "output_units": 819200.0,
+      "total_possible_spikes": 6553600.0,
+      "sparsity": 0.9671511755805267,
+      "firing_rate": 0.032848824419473344,
+      "mean_per_timestep": 26909.756964432567,
+      "std_per_timestep": 11251.903686523438,
+      "min_per_timestep": 6010.600878263775,
+      "max_per_timestep": 40579.68737150494
+    },
+    "patch_embed.proj_lif2": {
+      "total_spikes": 47259.25493421053,
+      "output_units": 409600.0,
+      "total_possible_spikes": 3276800.0,
+      "sparsity": 0.9855776199541593,
+      "firing_rate": 0.014422380045840616,
+      "mean_per_timestep": 5907.406866776316,
+      "std_per_timestep": 830.1492221229955,
+      "min_per_timestep": 5114.929003263775,
+      "max_per_timestep": 7569.0995065789475
+    },
+    "patch_embed.proj_lif3": {
+      "total_spikes": 10777.073878238076,
+      "output_units": 102400.0,
+      "total_possible_spikes": 819200.0,
+      "sparsity": 0.9868443922384791,
+      "firing_rate": 0.013155607761521089,
+      "mean_per_timestep": 1347.1342347797595,
+      "std_per_timestep": 438.2190055847168,
+      "min_per_timestep": 345.22574013157896,
+      "max_per_timestep": 1704.5649671052631
+    },
+    "patch_embed.rpe_lif": {
+      "total_spikes": 16128.886378238076,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9212456719812593,
+      "firing_rate": 0.0787543280187406,
+      "mean_per_timestep": 2016.1107972797595,
+      "std_per_timestep": 371.15828303286906,
+      "min_per_timestep": 1275.3484103554174,
+      "max_per_timestep": 2562.4569637900904
+    },
+    "block.0.attn.q_lif": {
+      "total_spikes": 15086.836759868422,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.926333804883455,
+      "firing_rate": 0.07366619511654503,
+      "mean_per_timestep": 1885.8545957866468,
+      "std_per_timestep": 819.0239097193668,
+      "min_per_timestep": 1261.1977796052631,
+      "max_per_timestep": 3780.9091282894738
+    },
+    "block.0.attn.k_lif": {
+      "total_spikes": 7560.514529579564,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9630834251485374,
+      "firing_rate": 0.03691657485146271,
+      "mean_per_timestep": 945.0643165989926,
+      "std_per_timestep": 309.9238514147307,
+      "min_per_timestep": 191.63555376153244,
+      "max_per_timestep": 1135.901178861919
+    },
+    "block.0.attn.v_lif": {
+      "total_spikes": 6982.639940763775,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9659050784142394,
+      "firing_rate": 0.034094921585760614,
+      "mean_per_timestep": 872.8299925954718,
+      "std_per_timestep": 249.0846915997957,
+      "min_per_timestep": 264.75315254612974,
+      "max_per_timestep": 1013.7108005724455
+    },
+    "block.0.attn.attn_lif": {
+      "total_spikes": 4852.897889789782,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9763042095225108,
+      "firing_rate": 0.02369579047748917,
+      "mean_per_timestep": 606.6122362237228,
+      "std_per_timestep": 243.45543871427836,
+      "min_per_timestep": 284.29810855263156,
+      "max_per_timestep": 1078.0526315789473
+    },
+    "block.0.attn.proj_lif": {
+      "total_spikes": 9326.954223632812,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9544582313299178,
+      "firing_rate": 0.0455417686700821,
+      "mean_per_timestep": 1165.8692771510075,
+      "std_per_timestep": 471.037689811305,
+      "min_per_timestep": 46.01452851295471,
+      "max_per_timestep": 1515.0400221975226
+    },
+    "block.0.mlp.fc1_lif": {
+      "total_spikes": 2676.882539447985,
+      "output_units": 6400.0,
+      "total_possible_spikes": 51200.0,
+      "sparsity": 0.9477171379014064,
+      "firing_rate": 0.05228286209859347,
+      "mean_per_timestep": 334.6103174309981,
+      "std_per_timestep": 38.49159608389202,
+      "min_per_timestep": 272.0699013157895,
+      "max_per_timestep": 390.89583346718234
+    },
+    "block.0.mlp.fc2_lif": {
+      "total_spikes": 16631.12349660773,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9187933423017199,
+      "firing_rate": 0.08120665769827994,
+      "mean_per_timestep": 2078.8904370759665,
+      "std_per_timestep": 905.4973758898283,
+      "min_per_timestep": 2.5500274128035496,
+      "max_per_timestep": 2657.466009842722
+    },
+    "block.1.attn.q_lif": {
+      "total_spikes": 19400.28673673931,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9052720374182652,
+      "firing_rate": 0.0947279625817349,
+      "mean_per_timestep": 2425.0358420924135,
+      "std_per_timestep": 839.4347570318924,
+      "min_per_timestep": 460.5922423914859,
+      "max_per_timestep": 3008.9561414216696
+    },
+    "block.1.attn.k_lif": {
+      "total_spikes": 7597.914473684211,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.962900808233964,
+      "firing_rate": 0.03709919176603618,
+      "mean_per_timestep": 949.7393092105264,
+      "std_per_timestep": 354.3139688592208,
+      "min_per_timestep": 98.67434210526316,
+      "max_per_timestep": 1220.4491504869964
+    },
+    "block.1.attn.v_lif": {
+      "total_spikes": 5639.4004934210525,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9724638647782173,
+      "firing_rate": 0.027536135221782478,
+      "mean_per_timestep": 704.9250620791787,
+      "std_per_timestep": 281.5333557128906,
+      "min_per_timestep": 22.706962723481027,
+      "max_per_timestep": 896.1800986842105
+    },
+    "block.1.attn.attn_lif": {
+      "total_spikes": 3731.9095410798727,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.9817777854439459,
+      "firing_rate": 0.018222214556054064,
+      "mean_per_timestep": 466.4886926349841,
+      "std_per_timestep": 237.1156322077701,
+      "min_per_timestep": 0.0008223684210526315,
+      "max_per_timestep": 674.7698741712069
+    },
+    "block.1.attn.proj_lif": {
+      "total_spikes": 21810.615414268093,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.8935028544225191,
+      "firing_rate": 0.10649714557748091,
+      "mean_per_timestep": 2726.3269267835117,
+      "std_per_timestep": 1483.8393924110815,
+      "min_per_timestep": 0.0,
+      "max_per_timestep": 3947.7353355006167
+    },
+    "block.1.mlp.fc1_lif": {
+      "total_spikes": 5440.9520263671875,
+      "output_units": 6400.0,
+      "total_possible_spikes": 51200.0,
+      "sparsity": 0.893731405735016,
+      "firing_rate": 0.10626859426498413,
+      "mean_per_timestep": 680.1190040989926,
+      "std_per_timestep": 248.19707790173982,
+      "min_per_timestep": 133.1526864202399,
+      "max_per_timestep": 896.9030978554174
+    },
+    "block.1.mlp.fc2_lif": {
+      "total_spikes": 81006.25221011513,
+      "output_units": 25600.0,
+      "total_possible_spikes": 204800.0,
+      "sparsity": 0.6044616591302973,
+      "firing_rate": 0.3955383408697028,
+      "mean_per_timestep": 10125.78152626439,
+      "std_per_timestep": 3698.316142835115,
+      "min_per_timestep": 1065.1137610987614,
+      "max_per_timestep": 12194.433799342105
+    }
+  },
+  "total_spikes": 679937.0625,
+  "feat_extractor_spikes": 472191.83073344984,
+  "transformer_spikes": 207745.18027536492,
+  "total_units": 3315200.0,
+  "total_possible_spikes": 26521600.0,
+  "overall_sparsity": 0.9743628943012488
+}

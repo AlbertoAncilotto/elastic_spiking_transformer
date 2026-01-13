@@ -346,6 +346,10 @@ def parse_args():
     parser.add_argument('--sps-alpha', type=float, default=1.0, help='SPS alpha')
     parser.add_argument('--use-xisps', action='store_true', default=False)
     parser.add_argument('--xisps-elastic', action='store_true', default=False)
+    parser.add_argument('--attn-lower-heads-limit', type=int, default=2,
+                        help='minimum number of attention heads in granularities (default: 2)')
+    parser.add_argument('--sps-lower-filter-limit', type=int, default=4,
+                        help='minimum number of filters in SPS granularities (default: 4)')
     
     # Evaluation args
     parser.add_argument('--checkpoint', required=True, help='path to checkpoint')
@@ -388,6 +392,8 @@ def main(args):
         sps_alpha=args.sps_alpha,
         use_xisps=args.use_xisps,
         xisps_elastic=args.xisps_elastic,
+        attn_lower_heads_limit=args.attn_lower_heads_limit,
+        sps_lower_filter_limit=args.sps_lower_filter_limit,
     )
     
     # Load checkpoint
